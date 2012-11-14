@@ -83,11 +83,11 @@ see <http://www.gnu.org/licenses/>.
 > "",
 > "There is one subdirectory to this directory and it is called",
 > "",
-> "publicData",
+> "PublicData",
 > "",
-> "No file held within publicData or any of it's subdirectories may contain personally identifying information.",
+> "No file held within PublicData or any of it's subdirectories may contain personally identifying information.",
 > "",
-> "publicData contains one file named anonStudy.json",
+> "PublicData contains one file named anonStudy.json",
 > "and a directory named Subjects which contains subdirectories corresponding to each subject.",
 > "",
 > "<study-name>-anon.json contains the same information as <study-name>.json except in a form which has been passed through the custom anonimization function that was provided.",
@@ -121,12 +121,12 @@ Parametric values:
 >   ,datFileSuffix=".dat"
 >   ,viewPlotCommand=
 >     (\filePathOfDatFile->
->       "view plot comand using dat file:"++filePathOfDatFile)
+>       "gedit "++filePathOfDatFile)
 >   ,plotFileSuffix=".png"
 >   ,savePlotCommand=
 >     (\filePathOfDatFile plotFile->
->        "save plot comand using dat file:"++filePathOfDatFile++
->        " and plot file:"++plotFile)}]
+>        "cp "++filePathOfDatFile++
+>        " "++plotFile)}]
 
 >subjectInfoFeilds :: [(String,String,JS.JSValue)]
 >subjectInfoFeilds =?=
@@ -568,10 +568,35 @@ Just read and read and read.
 >dataDirectory baseDirectory viewMode =
 > case viewMode of
 >  AnonReadOnly -> baseDirectory
->  ReadWrite    -> FP.combine baseDirectory "data"
+>  ReadWrite    -> FP.combine baseDirectory "PublicData"
 
 >subjectsDirectory dataDirectory =
 > FP.combine dataDirectory "Subjects"
+
+>subjectDirectory
+> subjectsDirectory
+> subjectInfoAnonymized
+> subjectName
+>  !
+> subject
+>  =
+> FP.combine
+>  subjectsDirectory
+>  (subjectName $ subjectInfoAnonymized $ subjectInfo subject)
+
+>recordingDirectory
+> subjectDirectory
+>  !
+> subject
+> recording
+>   =
+> let
+>  subjectDir = subjectDirectory subject
+> in
+> FP.combine
+>  subjectDir
+>  $ recordingDateTime recording
+
 
 The main window depends on studyFilePath because it should not show up before the correct file is selected.
 
@@ -679,19 +704,23 @@ even though you don't know why.
 
 >addSubjectEntry
 > mainWindow
+>  << GTK.postGUISync $ do
+> GTK.entryNew
+
+>addSubjectEntryKeyPressEvents
+> addSubjectEntry
 > addSubject
 >  << GTK.postGUISync $ do
-> e <- GTK.entryNew
-> e `on` GTK.keyPressEvent $ do
+> addSubjectEntry `on` GTK.keyPressEvent $ do
 >  modifier <- eventModifier
 >  key <- eventKeyName
 >  case (modifier, key) of
->   ([],"Enter") ->
+>   ([],"Return") ->
 >    liftIO $ do
 >     addSubject
 >     return True
 >   _ -> return False
-> return e
+
 
 >addSubjectButton
 > mainWindow
@@ -745,7 +774,7 @@ Today, the energy of life flows through me :)
 >  =
 > fst subjectsListVBoxAndUpdater
 
->initialSubjectsUpdater
+>subjectsUpdater
 > subjectsListVBoxAndUpdater
 >  =
 > snd subjectsListVBoxAndUpdater
@@ -754,7 +783,12 @@ Today, the energy of life flows through me :)
 > mainWindow
 > onSubjectSelected
 >  <<
-> simpleListView "Subjects" [] onSubjectSelected
+> TBL.toggleButtonListNew
+>  onSubjectSelected
+>  Vertical
+>  (\button->GTK.buttonSetRelief button GTK.ReliefNone)
+>  []
+
 
 >notebook
 > mainPaned
@@ -825,42 +859,57 @@ for debugging purposes.
 > GTK.widgetSetSensitivity recordingViewPaned2 True
 
 >recordingMaybeObject
+>  <<
+> TO.threadObject
+
+Kruai has got to be one of the most
+under-recognized talents of the electronic music world!
+
+http://www.jamendo.com/en/artist/359047/kruai
+
+>recordingMaybeObjectInitialized
+> recordingMaybeObject
 > drawRecording
 >  << do
-> to <- TO.threadObject
 > TO.objectInit
->  to
+>  recordingMaybeObject
 >  (TO.SyncWithoutSignal
 >    (TO.SeedInitially $
 >      Nothing))
 >  drawRecording
 >  (TO.handleExceptionStdErr "recordingMaybeObject")
-> return to
+
+It's a good thing that wealth is measured in
+debt,
+bombs,
+burnt oil,
+incarceration,
+and split blood.
+Otherwise I couldn't tell all the girls I'm a "rich" American.
 
 >drawRecording
+> filterButtonsUpdater
+> filters
 > logFileContentsObject
+> datFileContentsObject
+> plotSaveEntry
+> plotViewEntry
 > metaDataObject
-> subjectInfoAnonymized
-> subjectsDirectory
+> subjectDirectory
+> recordingDirectory
 > subjectMaybeObject
 > subjectName
 >  !
 > recordingMaybe
 > signal
 >  = do
-> subjectMaybe <- TO.getObjectValue subjectMaybeObject
-> case (subjectMaybe,recordingMaybe) of
->  (Just subject,Just recording) -> do
+> case recordingMaybe of
+>  Just recording -> do
+>   clearEntries
+>   (Just subject) <- TO.getObjectValue subjectMaybeObject
 >   let
->    subjectDirectory =
->     FP.combine
->      subjectsDirectory
->      (subjectName $ subjectInfoAnonymized $ subjectInfo subject)
->    recordingDirectory =
->     FP.combine
->      subjectDirectory
->      $ recordingDateTime recording
->    logFile = FP.combine recordingDirectory "log"
+>    recordingDir = recordingDirectory subject recording
+>    logFile = FP.combine recordingDir "log"
 >   logFileContents <- readFile logFile
 >   TO.update
 >    logFileContentsObject
@@ -868,7 +917,95 @@ for debugging purposes.
 >   {-TO.update
 >    metaDataObject
 >    (\_->recordingMetaData recording)-}
->  _ -> return ()
+>  Nothing -> clearEntries
+> where
+>  clearEntries = do
+>   TO.update
+>    logFileContentsObject
+>    (\_->"")
+>   TO.update
+>    datFileContentsObject
+>    (\_->"")
+>   GTK.postGUIAsync $ do
+>    GTK.entrySetText plotSaveEntry ""
+>    GTK.entrySetText plotViewEntry ""
+>    filterButtonsUpdater $ map filterName filters
+
+Pizza gives me a stomache ache,
+especially when I eat it quickly at the computer.
+Really,
+the greatest thing about the singularity,
+will be that computers don't have to eat!
+
+Dealing with GTK2HS bugs has really got me down,
+I know,
+my comments are totally depressed,
+but I hope my code will be good.
+
+Again,
+you have to realize,
+in a way I rellish unhappyness.
+I could be out snoging a girl right now,
+though I recently found out that's quite borring.
+I find being lonely and unhappy makes me feel morally superior.
+And being able to turn up my nose at people,
+is half the point of life.
+
+It's important to remember,
+that the unplesantness of coding with imature libraries,
+in imature environments,
+that post unscrutable build time error messages,
+or when programs just crash/freeze, with no message at all.
+
+Coding like this,
+is the epitamy of hope.
+One codes in their dreams,
+and then comes back out into the world.
+
+Hey, guys!
+I had a dream last night about coding DeReEval code
+in this new language called haskarrow!
+
+"What language?"
+
+"You'll see!
+Once I write a compiler for it!"
+
+So much hope.
+
+Like the little dog
+sitting under the table.
+Who bangs his head
+every time he looks up to see if any food might be falling from the "sky".
+
+Someday it will be easy!
+
+Today it's hard.
+
+But someday!
+
+Even when every bug in GTK2HS is gone,
+and haskarrow posts good error messages,
+and there's a gui for haskarrow,
+and I have derereeval working,
+and my brialle display is used by millions of people in India
+and I've written a working speech recognition system for linux,
+and an art generator
+and a movie editor
+and a better wrapper around the jack2d system making sound production on linux user friendly
+even when xmonad is running on wayland and supports zooming and 3D rotations in it's layouts
+even when text zooming works without overlaps in firefox and or chrome,
+and pdfs can be zoomed with wrapping of the text.
+
+Even then,
+eating pizza too fast,
+in front of the computer,
+will give me a stomache ache!
+
+Even then!
+
+And if I do all that by myself,
+I'll still be a virgin too!
 
 >stockRecordingMetaData
 > stockFeildsToJSObject
@@ -1053,7 +1190,7 @@ careful examination of the facebook fotos confirms this fact. :D :D
 > return vb
 
 >dataFileVBox
-> filterButtonsHBox
+> filterButtonsBox
 > datFileTextView
 > plotViewCommandHBox
 > plotSaveCommandHBox
@@ -1063,7 +1200,7 @@ careful examination of the facebook fotos confirms this fact. :D :D
 > GTK.boxPackEnd vb plotSaveCommandHBox GTK.PackNatural 0
 > GTK.boxPackEnd vb plotViewCommandHBox GTK.PackNatural 0
 > GTK.boxPackEnd vb datFileTextView GTK.PackGrow 0
-> GTK.boxPackEnd vb filterButtonsHBox GTK.PackNatural 0
+> GTK.boxPackEnd vb filterButtonsBox GTK.PackNatural 0
 > GTK.panedAdd2 recordingViewPaned2 vb
 > return vb
 
@@ -1081,15 +1218,36 @@ careful examination of the facebook fotos confirms this fact. :D :D
 >  << GTK.postGUISync $ do
 > GTK.entryNew
 
+>plotViewEntryKeyPressEvents
+> viewPlot
+> plotViewEntry
+>  << GTK.postGUISync $ do
+> plotViewEntry `on` GTK.keyPressEvent $ do
+>  modifier <- eventModifier
+>  key <- eventKeyName
+>  case (modifier, key) of
+>   ([],"Return") ->
+>    liftIO $ do
+>     viewPlot
+>     return True
+>   _ -> return False
+
+
 >plotViewButton
 > plotViewEntry
+> viewPlot
 >  << GTK.postGUISync $ do
 > b <- buttonNewWithLabel "view plot"
 > b `on` buttonActivated $ do
->  command <- entryGetText plotViewEntry
->  createProcess (shell command)
->  return ()
+>  viewPlot
 > return b
+
+>viewPlot
+> plotViewEntry
+>  = do
+> command <- GTK.entryGetText plotViewEntry
+> createProcess (shell command)
+> return ()
 
 Nice song :)
 http://www.jamendo.com/en/track/368189/closing-song
@@ -1112,22 +1270,41 @@ It might have a direction,
 but to look for purpose
 one must look to the individual
 or some set of individuals at least
-the whole is in conflict more than unity.
+the whole is more in conflict than in unity.
 
 >plotSaveEntry
 > mainWindow
 >  << GTK.postGUISync $ do
 > GTK.entryNew
 
->plotSaveButton
+>plotSaveEntryKeyPressEvents
 > plotSaveEntry
+> savePlot
+>  << GTK.postGUISync $ do
+> plotSaveEntry `on` GTK.keyPressEvent $ do
+>  modifier <- eventModifier
+>  key <- eventKeyName
+>  case (modifier, key) of
+>   ([],"Return") ->
+>    liftIO $ do
+>     savePlot
+>     return True
+>   _ -> return False
+
+>plotSaveButton
+> savePlot
 >  << GTK.postGUISync $ do
 > b <- buttonNewWithLabel "save plot"
 > b `on` buttonActivated $ do
->  command <- entryGetText plotSaveEntry
->  createProcess (shell command)
->  return ()
+>  savePlot
 > return b
+
+>savePlot
+> plotSaveEntry
+>  = do
+> command <- GTK.entryGetText plotSaveEntry
+> createProcess (shell command)
+> return ()
 
 >datFileTextView
 > datFileTextBuffer
@@ -1142,15 +1319,18 @@ the whole is in conflict more than unity.
 > textBufferNew Nothing
 
 >datFileContentsObject
+>  <<
+> TO.threadObject
+
+>datFileContentsObjectInitialized
+> datFileContentsObject
 > drawDatFileContents
 >  << do
-> to <- TO.threadObject
 > objectInit
->  to
+>  datFileContentsObject
 >  (TO.SyncWithoutSignal (TO.SeedInitially ""))
 >  drawDatFileContents
 >  (handleExceptionStdErr "datFileContentsObject")
-> return to
 
 Perhaps the hardest part about coding is food.
 Hungry, hungry, hungry.
@@ -1204,6 +1384,9 @@ I just carry my laptop with me.
 
 >drawDatFileContents
 > datFileTextBuffer
+> recordingDirectory
+> recordingMaybeObject
+> subjectMaybeObject
 >  !
 > contents
 > signal
@@ -1233,32 +1416,62 @@ I just carry my laptop with me.
 >  logFileTextBuffer
 >  contents
 
->filterButtonsHBox
+>filterButtonsBoxAndUpdater
 > filters
 > onFilterSelected
 >  <<
 > TBL.toggleButtonListNew
 >  onFilterSelected
+>  TBL.Horizontal
+>  (\_->return())
 >  $ map
 >     filterName
 >     filters
+
+>filterButtonsBox
+> filterButtonsBoxAndUpdater
+>  =
+> fst filterButtonsBoxAndUpdater
+
+>filterButtonsUpdater
+> filterButtonsBoxAndUpdater
+>  =
+> snd filterButtonsBoxAndUpdater
+
 
 >onFilterSelected
 > filters
 > logFileContentsObject
 > datFileContentsObject
+> plotViewEntry
+> plotSaveEntry
+> recordingDirectory
+> recordingMaybeObject
+> subjectMaybeObject
 >  !
 > filterName'
 >  = do
 > logFileContents <- TO.getObjectValue logFileContentsObject
+> (Just subject) <- TO.getObjectValue subjectMaybeObject
+> (Just recording) <- TO.getObjectValue recordingMaybeObject
 > let
 >  filter =
 >   case find (\filter'->filterName filter' == filterName') filters of
 >    Just filter' -> filter'
 >    Nothing -> error "Impossible!  Filters list corrupted."
+>  recordingDir = recordingDirectory subject recording
+>  datFilePath :: FilePath
+>  datFilePath = FP.combine recordingDir $ (filterName filter) ++ (datFileSuffix filter)
+>  plotFilePath = FP.combine recordingDir $ (filterName filter) ++ (plotFileSuffix filter)
+>  viewPlotCommandFull = (viewPlotCommand filter) datFilePath
+>  savePlotCommandFull = (savePlotCommand filter) datFilePath plotFilePath
+>  datFileContents = (logToDat filter) logFileContents
 > TO.update
 >  datFileContentsObject
->  (\_->(logToDat filter) logFileContents)
+>  (\_-> datFileContents)
+> GTK.entrySetText plotViewEntry viewPlotCommandFull
+> GTK.entrySetText plotSaveEntry savePlotCommandFull
+> writeFile datFilePath datFileContents
 
 >onSubjectSelected
 > subjectsObject
@@ -1266,6 +1479,7 @@ I just carry my laptop with me.
 > subjectInfos
 > subjectName
 > notebook
+> recordingMaybeObject
 > recordingViewPaned1
 > recordingViewPaned2
 >  !
@@ -1329,6 +1543,9 @@ you'll get depressed.
 >  subjectMaybeObject
 >  (\_ ->
 >    Just currentSubject)
+> TO.update
+>  recordingMaybeObject
+>  (\_->Nothing)
 > GTK.widgetSetSensitivity notebook True
 > GTK.widgetSetSensitivity recordingViewPaned1 True
 > GTK.widgetSetSensitivity recordingViewPaned2 False
@@ -1479,11 +1696,6 @@ spraying all the mutable state.
 Hmm, somewhere there is a block on an MVar opperation...
 I HATE blocks on mvar opperations!
 
->subjectsUpdaterMVar
-> initialSubjectsUpdater
->  <<
-> newMVar initialSubjectsUpdater
-
 If you delete the SubjectsList widget
 and then recreate it
 before winow build is complete
@@ -1498,7 +1710,7 @@ There seems to be no way to make this code work :(
 
 >drawSubjects
 > mainWindowInitializedTVar
-> subjectsUpdaterMVar
+> subjectsUpdater
 > subjectName
 > studyFilePath
 > subjectInfos
@@ -1511,11 +1723,8 @@ There seems to be no way to make this code work :(
 >  = do
 > GTK.postGUISync $ do
 >  GTK.widgetShowAll mainWindow
->  (SLV.UpdateTreeView subjectsUpdater) <-
->   MV.takeMVar subjectsUpdaterMVar
 >  let subjectNames = map (subjectName.subjectInfo) subjects
->  newUpdater <- subjectsUpdater subjectNames
->  MV.putMVar subjectsUpdaterMVar newUpdater
+>  subjectsUpdater subjectNames
 > let
 >  anonSubjectInfos :: [SubjectInfo]
 >  anonSubjectInfos = subjectInfosAnonymize $ subjectInfos subjects

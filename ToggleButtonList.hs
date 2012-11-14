@@ -5,28 +5,55 @@ import Graphics.UI.Gtk as GTK
 main = do
    GTK.initGUI       -- is start
    window <- GTK.windowNew
-   toggleButtonList <- toggleButtonListNew (\item->putStrLn item) ["Hi","Bye","Bar","Foo","LadyDa"]
+   (toggleButtonList,updater) <- toggleButtonListNew (\item->putStrLn item) Vertical (\button->GTK.buttonSetRelief button GTK.ReliefNone) ["Hi","Bye","Bar","Foo","LadyDa"]
    GTK.containerAdd window toggleButtonList
    GTK.onDestroy window GTK.mainQuit
+   updater ["Bob","Fred"]
    GTK.widgetShowAll window
    GTK.mainGUI
    return ()-}
 
-toggleButtonListNew :: (String->IO()) -> [String] -> IO GTK.HBox
+type ToggleButtonListUpdater = [String]->IO ()
+
+data Orientation = Horizontal | Vertical
+
+{-toggleButtonListNew ::
+ (String->IO()) ->
+ ToggleButtonList.Orientation ->
+ [String] ->
+ IO (GTK.Box,ToggleButtonListUpdater)-}
+
 toggleButtonListNew
  onToggle
- list
+ orientation
+ drawHelper
+ labels
   = do
- hb <- GTK.hBoxNew False 0
+ b <- case orientation of
+  Horizontal -> do
+   hb <- GTK.hBoxNew False 0
+   return $ castToBox hb
+  Vertical -> do
+   vb <- GTK.vBoxNew False 0
+   return $ castToBox vb
  let
   addToggleButton label = do
    tb <- GTK.toggleButtonNewWithLabel label
-   GTK.boxPackStart hb tb GTK.PackNatural 0
+   GTK.boxPackStart b tb GTK.PackNatural 0
    return tb
- tbs <- mapM addToggleButton list
+  clearBox = do
+   GTK.containerForall b GTK.widgetDestroy
+  fillBox labels = do
+   tbs<-mapM addToggleButton labels
+   mapM drawHelper tbs
+   GTK.widgetShowAll b
+   return tbs
+ tbs <- fillBox labels
  let
-  tbWithLabels = zip tbs list
+  tbWithLabels tbs labels = zip tbs labels
   setupToggleButton
+   labels'
+   tbs
    (tb,label)
     =
    tb `on` GTK.toggled $ do
@@ -39,8 +66,14 @@ toggleButtonListNew
        if label == label'
        then return ()
        else set tb' [GTK.toggleButtonActive := False])
-      tbWithLabels
+      (tbWithLabels tbs labels')
     else
      return ()
- mapM setupToggleButton tbWithLabels
- return hb
+  updateToggleButtons :: [String] -> IO()
+  updateToggleButtons labels = do
+    clearBox
+    tbs <- fillBox labels
+    mapM_ (setupToggleButton labels tbs) (tbWithLabels tbs labels)
+
+ mapM (setupToggleButton labels tbs) (tbWithLabels tbs labels)
+ return (b,updateToggleButtons)
