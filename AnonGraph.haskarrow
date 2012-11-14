@@ -774,7 +774,7 @@ Today, the energy of life flows through me :)
 >  =
 > fst subjectsListVBoxAndUpdater
 
->subjectsUpdater
+>initialSubjectsUpdater
 > subjectsListVBoxAndUpdater
 >  =
 > snd subjectsListVBoxAndUpdater
@@ -783,12 +783,7 @@ Today, the energy of life flows through me :)
 > mainWindow
 > onSubjectSelected
 >  <<
-> TBL.toggleButtonListNew
->  onSubjectSelected
->  Vertical
->  (\button->GTK.buttonSetRelief button GTK.ReliefNone)
->  []
-
+> simpleListView "Subjects" [] onSubjectSelected
 
 >notebook
 > mainPaned
@@ -836,6 +831,9 @@ Today, the energy of life flows through me :)
 > recordingMaybeObject
 > recordingViewPaned1
 > recordingViewPaned2
+> datFileTextView
+> plotViewCommandHBox
+> plotSaveCommandHBox
 >  !
 > recordingName
 >  = do
@@ -857,6 +855,9 @@ for debugging purposes.
 >    Nothing -> error "Recordings list corupted unexpectedly.")
 > GTK.widgetSetSensitivity recordingViewPaned1 True
 > GTK.widgetSetSensitivity recordingViewPaned2 True
+> GTK.widgetSetSensitivity datFileTextView False
+> GTK.widgetSetSensitivity plotViewCommandHBox False
+> GTK.widgetSetSensitivity plotSaveCommandHBox False
 
 >recordingMaybeObject
 >  <<
@@ -1102,6 +1103,7 @@ Goodnight!
 > stockRecordingMetaData
 > mainWindow
 > recordingMetaDataFeilds
+> setRecordings
 >  !
 > oldRecordings
 >  = do
@@ -1151,9 +1153,34 @@ Ahh, the burning irony in that createDirectory can throw a "directory does not e
 >   waitForProcess pHandle
 >   GTK.postGUISync $ do
 >    GTK.widgetSetSensitivity mainWindow True
->   return $ oldRecordings ++ (newRecording : [])
+>   let
+>    newRecordings =
+>     oldRecordings ++ (newRecording : [])
+>   setRecordings subject newRecordings
+>   return newRecordings
 >  Nothing ->
 >   return oldRecordings
+
+>setRecordings
+> subjectName
+> subjectsObject
+>  !
+> subject
+> newRecordings
+>  =
+> TO.update
+>  subjectsObject
+>   (\subjects->
+>      map
+>       (\thisSubject->
+>         case (subjectName $ subjectInfo thisSubject)
+>                        ==
+>             (subjectName $ subjectInfo subject) of
+>           True  ->
+>            thisSubject{subjectRecordings = newRecordings}
+>           False -> thisSubject)
+>       subjects)
+
 
 Woke up too early this morning.
 Whenever I sleep too little,
@@ -1448,9 +1475,15 @@ I just carry my laptop with me.
 > recordingDirectory
 > recordingMaybeObject
 > subjectMaybeObject
+> datFileTextView
+> plotViewCommandHBox
+> plotSaveCommandHBox
 >  !
 > filterName'
 >  = do
+> GTK.widgetSetSensitivity datFileTextView True
+> GTK.widgetSetSensitivity plotViewCommandHBox True
+> GTK.widgetSetSensitivity plotSaveCommandHBox True
 > logFileContents <- TO.getObjectValue logFileContentsObject
 > (Just subject) <- TO.getObjectValue subjectMaybeObject
 > (Just recording) <- TO.getObjectValue recordingMaybeObject
@@ -1472,6 +1505,8 @@ I just carry my laptop with me.
 > GTK.entrySetText plotViewEntry viewPlotCommandFull
 > GTK.entrySetText plotSaveEntry savePlotCommandFull
 > writeFile datFilePath datFileContents
+
+>data UpdateSubjects = Don'tUpdateSubjects
 
 >onSubjectSelected
 > subjectsObject
@@ -1621,12 +1656,13 @@ spraying all the mutable state.
 > subjectMaybe
 > signal
 >  =
-> TO.update
+> TO.updateWithSignal
 >  recordingsObject
 >  (\_->
 >   case subjectMaybe of
 >    Just subject -> subjectRecordings subject
 >    Nothing -> [])
+>  Don'tUpdateSubjects
 
 >initialSubjects
 > initialSubjectInfos
@@ -1696,6 +1732,11 @@ spraying all the mutable state.
 Hmm, somewhere there is a block on an MVar opperation...
 I HATE blocks on mvar opperations!
 
+>subjectsUpdaterMVar
+> initialSubjectsUpdater
+>  <<
+> newMVar initialSubjectsUpdater
+
 If you delete the SubjectsList widget
 and then recreate it
 before winow build is complete
@@ -1710,7 +1751,7 @@ There seems to be no way to make this code work :(
 
 >drawSubjects
 > mainWindowInitializedTVar
-> subjectsUpdater
+> subjectsUpdaterMVar
 > subjectName
 > studyFilePath
 > subjectInfos
@@ -1721,10 +1762,14 @@ There seems to be no way to make this code work :(
 > subjects
 > signal
 >  = do
+> putStrLn "Drawing subjects."
 > GTK.postGUISync $ do
 >  GTK.widgetShowAll mainWindow
+>  (SLV.UpdateTreeView subjectsUpdater) <-
+>   MV.takeMVar subjectsUpdaterMVar
 >  let subjectNames = map (subjectName.subjectInfo) subjects
->  subjectsUpdater subjectNames
+>  newUpdater <- subjectsUpdater subjectNames
+>  MV.putMVar subjectsUpdaterMVar newUpdater
 > let
 >  anonSubjectInfos :: [SubjectInfo]
 >  anonSubjectInfos = subjectInfosAnonymize $ subjectInfos subjects
@@ -1766,18 +1811,6 @@ There seems to be no way to make this code work :(
 > subjectMaybe <- TO.getObjectValue subjectMaybeObject
 > case subjectMaybe of
 >  Just subject -> do
->   TO.update
->    subjectsObject
->    (\subjects->
->      map
->       (\thisSubject->
->         case (subjectName $ subjectInfo thisSubject)
->                         ==
->              (subjectName $ subjectInfo subject) of
->          True  ->
->           thisSubject{subjectRecordings = recordings}
->          False -> thisSubject)
->       subjects)
 >   (UpdateTreeView updater) <-
 >    MV.takeMVar recordingsListUpdaterMVar
 >   newUpdater <-
