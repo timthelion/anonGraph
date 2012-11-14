@@ -1,0 +1,1645 @@
+WARNING this source code may not be suitable for all audiences.
+
+This source code may contain:
+ Strong language
+ Sexual content
+ Mutable state
+
+Reader discretion advized!
+
+GPLV3.0 or later copyright Timothy Hobbs <timothyhobbs@seznam.cz>
+
+Copyright 2012.
+
+This program is free software:
+you can redistribute it and/or modify it
+under the terms of the GNU General Public License
+as published by the Free Software Foundation,
+either version 3 of the License,
+or
+(at your option)
+any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY;
+without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+See the GNU General Public License for more details.
+
+You should have received a copy
+of the GNU General Public License along with this program.
+If not,
+see <http://www.gnu.org/licenses/>.
+
+-->module AnonGraph where
+
+>import Text.JSON as JS
+>import Control.Concurrent as CC
+>import Control.Monad as CM
+>import Control.Exception as CE
+>import Control.Concurrent.MVar as MV
+>import Control.Concurrent.ThreadObject as TO
+>import Control.Monad.IO.Class as Class
+>import Graphics.UI.Gtk as GTK
+>import System.Exit as Exit
+>import System.IO as IO
+>import System.FilePath as FP
+>import System.Directory as SD
+>import System.Environment as SE
+>import System.Process
+>import SimpleListView as SLV
+>import ToggleButtonList as TBL
+>import JSInput as JSI
+>import Data.Ratio
+>import Data.List
+>import Data.Functor
+>import Data.Maybe
+>import Data.Time.LocalTime
+>import Data.Time.Calendar
+>import Numeric
+>import Control.Concurrent.STM as STM
+
+>introLines = [
+> "AnonGraph is designed for researchers doing studies sets of human subjects.",
+> "",
+> "It is built arround the following principles:",
+> "Reliable and automatically organized data capture with meta data included.",
+> "Easy anonimization of all data so as to allow rapid publication.",
+> "Ability to create custom filters or manipulation functions for the data in haskell.",
+> "",
+> "AnonGraph is packaged as a library.",
+> "It should be loaded from a haskell program which provides the needed",
+> " custom filters",
+> " meta-data definitions",
+> " and meta-data anonymization functions",
+> "",
+> "The data is organized in a directory hierarchy.",
+> "",
+> "The base directory contains a JSON file named.",
+> "",
+> "<study-name>.json",
+> "",
+> "This file may include personally identifying information of the subjects.",
+> "",
+> "There is one subdirectory to this directory and it is called",
+> "",
+> "publicData",
+> "",
+> "No file held within publicData or any of it's subdirectories may contain personally identifying information.",
+> "",
+> "publicData contains one file named anonStudy.json",
+> "and a directory named Subjects which contains subdirectories corresponding to each subject.",
+> "",
+> "<study-name>-anon.json contains the same information as <study-name>.json except in a form which has been passed through the custom anonimization function that was provided.",
+> "",
+> "each subject's directory contains a set of subdirectorories which are named according to the date and time of a given data gathering session.",
+> "Each of these recording directories includes:",
+> "a log file which is the output of whatever tool was used in the recording session.",
+> "and a metadata.json file which contains any researcher provided metadata coresponding to a given recording session.",
+> "No extra anonymization tools are provided for this metadata it is assumed that the researcher will not enter anything sensitive in her/his notes.",
+> "Any number of <filter-name>.<dat-suffix> files.",
+> "And any number of <filter-name>.<plot-suffix> files."]
+
+Parametric values:
+
+>recordCommand :: (FilePath -> String)
+>recordCommand =?= (\filePathOfLog->"gnome-terminal -e 'vim "++filePathOfLog ++ "'")
+
+>data Filter = Filter
+> {filterName :: String
+> ,logToDat :: String -> String
+> ,datFileSuffix :: String
+> ,viewPlotCommand :: FilePath {-Path of dat file-} ->  String
+> ,plotFileSuffix :: String
+> ,savePlotCommand :: FilePath {-Path of dat file-}-> FilePath {-Path of plot file-}-> String}
+
+>filters :: [Filter]
+>filters =?=
+> [Filter
+>   {filterName="Location"
+>   ,logToDat=(\log->log++"filtered!")
+>   ,datFileSuffix=".dat"
+>   ,viewPlotCommand=
+>     (\filePathOfDatFile->
+>       "view plot comand using dat file:"++filePathOfDatFile)
+>   ,plotFileSuffix=".png"
+>   ,savePlotCommand=
+>     (\filePathOfDatFile plotFile->
+>        "save plot comand using dat file:"++filePathOfDatFile++
+>        " and plot file:"++plotFile)}]
+
+>subjectInfoFeilds :: [(String,String,JS.JSValue)]
+>subjectInfoFeilds =?=
+> [("string","String",JS.JSString $ JS.toJSString "")
+> ,("bool","Bool",JS.JSBool False)
+> ,("rational","Rational",JS.JSRational False (0%1))]
+
+>recordingMetaDataFeilds :: [(String,String,JS.JSValue)]
+>recordingMetaDataFeilds =?=
+> [("string","String",JS.JSString $ JS.toJSString "")
+> ,("bool","Bool",JS.JSBool False)
+> ,("rational","Rational",JS.JSRational False (0%1))]
+
+Note that the anonymized names are used as the names for the directories which hold the subject's recordings.
+These names must be unique keys.
+
+>subjectInfoAnonymize ::
+> [(String, JSValue)] ->
+> [(String, JSValue)]
+>subjectInfoAnonymize ! info =?=
+> map
+>  anonymizeEntry
+>  info
+> where
+>  (JS.JSRational _ id') =
+>   snd $ fromMaybe
+>    (error "invalid info dict")
+>    $ find
+>       (\(key,_)->
+>        key == "id")
+>       info
+>  id :: Double
+>  id = fromRat id'
+>  anonymizeEntry ("name",_) =
+>   ("name",JS.showJSON $ "Subject" ++ (show id))
+>  anonymizeEntry ("age", JS.JSRational _ age') =
+>   ("age", JS.showJSON $
+>    fromMaybe
+>     (error "IMPOSSIBLE!")
+>     $ find
+>      (\a-> a > age)
+>      [0,5..])
+>   where
+>    age :: Double
+>    age = fromRat age'
+
+>  anonymizeEntry x = x
+
+>subjectInfosAnonymize
+> subjectInfoAnonymize
+>  !
+> infos
+>  =
+> map
+>  subjectInfoAnonymize
+>  infos
+
+As I worked on this section of code,
+I began to feal a slight tingling of want
+ a growing ticking of discomfort
+  a menacing throbing of hunger
+
+So I went down stairs
+and severed open the bellys of two fist sized sunflower seed rolls.
+ lathered them with tasty cheese spread
+  and garnished them with tomatoe and letuce
+
+then I munched on these portions,
+ as a lioness munches on the flesh of her antelope prey
+
+and I smiled
+ yes smiled
+
+at the sound of the letuce,
+ cracking between my teath
+  like so many fragile bones
+
+a sound delightfull to the ears
+ of an adamant vegitarian such as myself.
+
+>subjectInfosAnonymized
+> viewMode
+> subjectInfosAnonymize
+>  !
+> infos =
+> case viewMode of
+>  AnonReadOnly -> infos
+>  ReadWrite -> subjectInfosAnonymize infos
+
+>subjectInfoAnonymized
+> viewMode
+> subjectInfoAnonymize
+>  !
+> info =
+> case viewMode of
+>  AnonReadOnly -> info
+>  ReadWrite -> subjectInfoAnonymize info
+
+>subjectInfosAnonymizedAsJSObjects
+> subjectInfosAnonymized
+>  !
+> infos
+>  =
+> map
+>  objectize
+>  $ subjectInfosAnonymized infos
+> where
+>  objectize info =
+>   obj
+>    where (JSObject obj) = makeObj info
+
+Why can't I use where in lambdas :(
+I want a refund!
+  (\info-> obj where (JSObject obj) = makeObj info)
+
+
+>stockFeildsToJSObject
+>  !
+> feilds
+>  =
+> object
+> where
+>  (JSObject object) =
+>   JS.makeObj $
+>    map
+>     (\(key,_,value)->(key,value))
+>     feilds
+
+
+When the researcher begins the program she/he will be prompted to either start a new study
+(create a new "project" directory)
+or open an existing one.
+
+We will need a gtk thread to display this dialog.
+
+>gtkThread << CC.forkOS (GTK.initGUI >> mainGUI)
+
+>data OpenOrStartStudy = OpenStudy | StartStudy
+
+The user will be promted IFF the user has not passed their study file as an argument that is.
+
+>systemArgs :: IO [String]
+>systemArgs << SE.getArgs
+
+>openOrStartStudy :: IO OpenOrStartStudy -> Maybe FilePath -> (Exit.ExitCode -> Maybe String -> IO ()) -> IO OpenOrStartStudy
+>openOrStartStudy
+> promptUserToOpenOrStartAStudy
+> studyFilePathFromSystemArgsMaybe
+> exitMethod
+>  << do
+> case studyFilePathFromSystemArgsMaybe of
+>  Just file -> do
+>   exists <- SD.doesFileExist file
+>   case exists of
+>    True  -> return OpenStudy
+>    False -> do
+>     putStrLn "This study file does not exist.  Do you want to start a new study with this name? [y/n]"
+>     answer <- getChar
+>     case answer of
+>      'y' -> return StartStudy
+>      _   -> do
+>       exitMethod Exit.ExitSuccess Nothing
+>       return $ error "unreachable point in code"
+>  Nothing -> promptUserToOpenOrStartAStudy
+
+Rule number one of being unproductive:
+Constantly check your email,
+but never reply to anything.
+
+>promptUserToOpenOrStartAStudy
+> gtkThread
+> introLines
+>  = do
+> openOrStartStudyMVar <- MV.newEmptyMVar
+> GTK.postGUIAsync $ do
+>  window <- GTK.windowNew
+>  myTopVBox <- GTK.vBoxNew False 0
+>  GTK.containerAdd window myTopVBox
+>  scrolledWindow <- GTK.scrolledWindowNew Nothing Nothing
+>  GTK.boxPackStart myTopVBox scrolledWindow GTK.PackGrow 0
+>  introTextBuffer <- GTK.textBufferNew Nothing
+>  GTK.textBufferSetText
+>   introTextBuffer
+>   $ unlines introLines
+>  introTextView <- GTK.textViewNewWithBuffer introTextBuffer
+>  GTK.textViewSetEditable introTextView False
+>  GTK.textViewSetWrapMode introTextView WrapWordChar
+>  let
+>   setFontSize textView size signal =
+>    GTK.postGUIAsync $ do
+>    fd <- GTK.fontDescriptionNew
+>    GTK.fontDescriptionSetSize fd size
+>    GTK.widgetModifyFont textView (Just fd)
+>  textSizeTO <- TO.threadObject
+>  objectInit
+>   textSizeTO
+>   (TO.SyncWithoutSignal (TO.SeedInitially 22))
+>   (setFontSize introTextView)
+>   (handleExceptionStdErr "textViewFontSize")
+>  introTextView `on` keyPressEvent $ do
+>   key  <- eventKeyName
+>   modifier <- eventModifier
+>   case (modifier,key) of
+>    ([Control],"plus") ->
+>     Class.liftIO $ TO.update textSizeTO (\oldSize->oldSize+0.5)>>return True
+>    ([Control],"minus") ->
+>     Class.liftIO $ TO.update textSizeTO (\oldSize->oldSize-0.5)>>return True
+>    _ -> return False
+>  GTK.containerAdd scrolledWindow introTextView
+>  openButton <- GTK.buttonNewWithLabel "Open Study"
+>  GTK.boxPackEnd myTopVBox openButton GTK.PackNatural 0
+>  openButton `on` GTK.buttonActivated $ do
+>   freeObject textSizeTO
+>   MV.putMVar openOrStartStudyMVar OpenStudy
+>   GTK.widgetDestroy window
+>  startButton <- GTK.buttonNewWithLabel "Start Study"
+>  GTK.boxPackEnd myTopVBox startButton GTK.PackNatural 0
+>  startButton `on` GTK.buttonActivated $ do
+>   freeObject textSizeTO
+>   MV.putMVar openOrStartStudyMVar StartStudy
+>   GTK.widgetDestroy window
+>  GTK.widgetShowAll window
+> CE.catch
+>  (MV.readMVar openOrStartStudyMVar)
+>  ((\e ->
+>          CM.forever CC.threadDelay 100000 >>
+>          (return $ error "unreachable code"))::BlockedIndefinitelyOnMVar -> IO OpenOrStartStudy)
+
+>studyFilePathFromSystemArgsMaybe :: [String] -> Maybe FilePath
+>studyFilePathFromSystemArgsMaybe
+> systemArgs
+>  =
+> case systemArgs of
+>  (file:_) -> Just file
+>  []       -> Nothing
+
+>studyFilePath
+> studyFilePathFromSystemArgsMaybe
+> getFilePathFromDialog
+> openOrStartStudy
+> exitMethod
+>  <<
+> case studyFilePathFromSystemArgsMaybe of
+>  Just file -> return file
+>  Nothing ->
+>   getFilePathFromDialog
+>    (case openOrStartStudy of
+>      OpenStudy  -> GTK.FileChooserActionOpen
+>      StartStudy -> GTK.FileChooserActionSave) >>=
+>   (\maybeFilePath -> case maybeFilePath of
+>    Just filePath -> return filePath
+>    Nothing -> do
+>     exitMethod
+>      (Exit.ExitFailure 1)
+>      (Just "Something happened and we couldn't open/create that file :(")
+>     return $ error "unreachable point in code")
+
+>getFilePathFromDialog :: GTK.FileChooserAction -> IO (Maybe FilePath)
+>getFilePathFromDialog ! myFileChooserAction = GTK.postGUISync $ do
+> fileChooserDialog <-
+>  GTK.fileChooserDialogNew
+>   (Just
+>    (case myFileChooserAction of 
+>     GTK.FileChooserActionSave -> "Save As...Dialog"
+>     GTK.FileChooserActionOpen -> "Open .. Dialog"
+>     _ -> error "Unexpected return value(action) from fileChooser."))
+>     Nothing
+>     myFileChooserAction
+>     [("Cancel", GTK.ResponseCancel),
+>      (case myFileChooserAction of
+>      GTK.FileChooserActionSave -> "Save"
+>      GTK.FileChooserActionOpen -> "Open"
+>      _ -> error "Error, received unexpected FileChooserAction type in getFilePathFromDialog.", GTK.ResponseAccept)]
+
+> GTK.fileChooserSetDoOverwriteConfirmation
+>  fileChooserDialog
+>  (case myFileChooserAction of
+>    GTK.FileChooserActionSave -> True
+>    GTK.FileChooserActionOpen -> False
+>    _ -> error "Error, received unexpected FileChooserAction type in getFilePathFromDialog.")
+> GTK.widgetShow fileChooserDialog
+> myFileDialogResponse <- GTK.dialogRun fileChooserDialog
+> value <-
+>  case myFileDialogResponse of
+>   GTK.ResponseCancel -> return Nothing
+>   GTK.ResponseAccept -> do {
+>    newFilenameMaybe <-
+>     GTK.fileChooserGetFilename
+>      fileChooserDialog;
+>    return
+>     (case newFilenameMaybe of
+>       Nothing -> Nothing
+>       Just path -> (Just path));}
+>   GTK.ResponseDeleteEvent -> return Nothing
+>   _ -> error "unexpected responce from fileChooserDialog in getFilePathFromDialog."
+> GTK.widgetDestroy fileChooserDialog
+> return value
+
+I know I have no reason to find this weird at all.
+Afterall,
+they've been married for years!
+But every time I see the little "in a relationship" heart on my grandmothers facebook page
+I'm taken a back a little.
+I guess it's just the stark contrast,
+between what that icon means for her,
+and what it means for me...
+
+>data ViewMode = AnonReadOnly | ReadWrite
+
+I've decided to start blogging inbetween the function declarations in my literate files.
+It's in version controll,
+and published on the internet.
+Who says this isn't a better way to share the worries I have in my life.
+I know,
+I'm supposed to be building up my source code as a resume peice.
+But more quality source code is better.
+And If I spend my time here,
+rather than on facebook
+or IRC
+perhaps that will be all for the better in the end.
+
+>viewMode studyFilePath =
+> case isSuffixOf "-anon.json" studyFilePath of
+>  True  -> AnonReadOnly
+>  False -> ReadWrite
+
+>initialErrorMessage viewMode =
+> case viewMode of
+>  AnonReadOnly -> "Read only browsing mode with anonymized data."
+>  ReadWrite -> "Read write mode."
+
+Man this source code is so long that the hardest thing about writing this project is navigation
+that will be changed once the haskarrow graphical front end is written :)
+and the haskarrow module system improved
+ect.
+
+>newFileHeirarchy
+> studyFilePath
+> openOrStartStudy
+> dataDirectory
+> baseDirectory
+> subjectsDirectory
+> anonStudyFilePath
+> isDirectoryEmpty
+> viewMode
+> exitMethod
+>  << do
+> case (openOrStartStudy,viewMode) of
+>  (StartStudy,ReadWrite) -> do
+>   empty <- isDirectoryEmpty baseDirectory
+>   case empty of
+>    True -> do
+>     writeFile studyFilePath "[]"
+>     SD.createDirectory dataDirectory
+>     writeFile anonStudyFilePath "[]"
+>     SD.createDirectory subjectsDirectory
+>    False ->
+>     exitMethod
+>      (Exit.ExitFailure 1)
+>      (Just $ "Error: The directory of a new study must be empty. " ++ baseDirectory ++ " is not.")
+>  (StartStudy,AnonReadOnly) ->
+>   exitMethod
+>    (Exit.ExitFailure 1)
+>    (Just $ "Error: Cannot create studies who's files end in \"-anon.json\"")
+>  _ -> return ()
+
+There will be a time when this is a weekend project,
+I think in C# with WPF and visual studio it might be!
+I have hope that haskarrow can be a platform as easy to use as that one.
+I know it's possible.
+It will just take work.
+
+>isDirectoryEmpty
+> trueDirectoryContents
+>  !
+> directory = do
+> realContents <- trueDirectoryContents directory
+> return $
+>  case realContents of
+>   [] -> True
+>   _ -> False
+
+↓ TODO Fixme to work on Windows! ↓
+
+>trueDirectoryContents
+>  !
+> directory
+>  = do
+> contents <-  getDirectoryContents directory
+> return $ filter
+>  (\file ->
+>   case file of
+>    "." -> False ;
+>    ".." -> False ;
+>    _ -> True)
+>  contents
+
+>studyFile
+> studyFilePath
+> newFileHeirarchy
+>  <<
+> readFile studyFilePath
+
+Whenever one does something good,
+like attempt to make an open source braille display,
+one puts themselves in the awkward situation of framing goodness in terms of humaninity.
+I do this to help humanity,
+but is humanity itself good?
+
+That is a question I cannot answer,
+and it troubles me imensely :(
+
+>studyName studyFilePath =
+> dropExtension $ snd $ splitFileName studyFilePath
+
+My ability to waste countless hours reading random arguments on the internet is unlimited :/
+
+I don't even respond.
+Just read and read and read.
+
+>anonStudyFilePath
+> studyFilePath
+> dataDirectory
+> studyName
+> viewMode
+>  =
+> case viewMode of
+>  AnonReadOnly -> studyFilePath
+>  ReadWrite ->
+>   FP.combine
+>    dataDirectory
+>    $ FP.addExtension
+>       (studyName++"-anon")
+>       "json"
+
+>baseDirectory studyFilePath =
+> fst (FP.splitFileName studyFilePath)
+
+>dataDirectory baseDirectory viewMode =
+> case viewMode of
+>  AnonReadOnly -> baseDirectory
+>  ReadWrite    -> FP.combine baseDirectory "data"
+
+>subjectsDirectory dataDirectory =
+> FP.combine dataDirectory "Subjects"
+
+The main window depends on studyFilePath because it should not show up before the correct file is selected.
+
+>mainWindow studyFilePath exitMethod << GTK.postGUISync $ do
+> w <- GTK.windowNew
+> _ <- w `on` objectDestroy $ do
+>  exitMethod Exit.ExitSuccess Nothing
+> return w
+
+>mainWindowInitializedTVar :: IO (STM.TVar Bool)
+>mainWindowInitializedTVar
+>  <<
+> STM.newTVarIO False
+
+>showMainWindow
+> mainWindow
+> mainWindowInitializedTVar
+>  <<
+> forkIO $ do
+>  _<-STM.atomically $ do
+>      i <- STM.readTVar mainWindowInitializedTVar
+>      case i of
+>       True -> return ()
+>       False -> retry
+>  GTK.postGUIAsync $ GTK.widgetShowAll mainWindow
+
+The terrible illusion,
+that once your code compiles and runs,
+it's almost done,
+is entirely too unsettling.
+
+Coding is a bit like slots,
+you get that kind of numb hopefull feeling
+as you pull down the build lever
+at least untill your brain goes numb
+at which you keep on building the damn thing anyways
+even though you don't know why.
+
+>errorAndMainPaned
+> mainWindow
+>  << GTK.postGUISync $ do
+> vp <- GTK.vPanedNew
+> GTK.containerAdd mainWindow vp
+> return vp
+
+>errorLabel
+> errorAndMainPaned
+>  << GTK.postGUISync $ do
+> l <- labelNew Nothing
+> GTK.panedAdd1 errorAndMainPaned l
+> return l
+
+>errorObject
+> drawErrorMessage
+> initialErrorMessage
+>  << do
+> to <- TO.threadObject
+> objectInit
+>  to
+>  (TO.SyncWithoutSignal (TO.SeedInitially initialErrorMessage))
+>  drawErrorMessage
+>  (handleExceptionStdErr "errorMessageObject")
+> return to
+
+>drawErrorMessage
+> errorLabel
+>  !
+> errorMessage
+> signal
+>  =
+> GTK.postGUIAsync $ do
+> set errorLabel [labelText := errorMessage]
+
+>mainPaned
+> errorAndMainPaned
+>  << GTK.postGUISync $ do
+> p <- GTK.hPanedNew
+> GTK.panedAdd2 errorAndMainPaned p
+> return p
+
+>subjectsVBoxTop
+> mainPaned
+> addSubjectVBox
+> subjectsListVBox
+>  << GTK.postGUISync $ do
+> vb <- GTK.vBoxNew False 0
+> GTK.boxPackStart vb subjectsListVBox GTK.PackGrow 0
+> GTK.boxPackEnd vb addSubjectVBox GTK.PackNatural 0
+> panedAdd1 mainPaned vb
+> return vb
+
+>addSubjectVBox
+> mainWindow
+> addSubjectEntry
+> addSubjectButton
+> viewMode
+>  << GTK.postGUISync $ do
+> b<-GTK.vBoxNew False 0
+> GTK.boxPackStart b addSubjectEntry GTK.PackGrow 0
+> GTK.boxPackEnd b addSubjectButton GTK.PackNatural 0
+> case viewMode of
+>  AnonReadOnly -> GTK.widgetSetSensitivity b False
+>  ReadWrite -> return ()
+> return b
+
+>addSubjectEntry
+> mainWindow
+> addSubject
+>  << GTK.postGUISync $ do
+> e <- GTK.entryNew
+> e `on` GTK.keyPressEvent $ do
+>  modifier <- eventModifier
+>  key <- eventKeyName
+>  case (modifier, key) of
+>   ([],"Enter") ->
+>    liftIO $ do
+>     addSubject
+>     return True
+>   _ -> return False
+> return e
+
+>addSubjectButton
+> mainWindow
+> addSubject
+>  << GTK.postGUISync $ do
+> b <- GTK.buttonNewWithLabel "Add"
+> b `on` buttonActivated $ do
+>  addSubject
+> return b
+
+Today, the energy of life flows through me :)
+
+>addSubject
+> addSubjectEntry
+> subjectsObject
+> subjectInfoFeilds
+> subjectInfoAnonymized
+> stockFeildsToJSObject
+> subjectsDirectory
+> subjectName
+>  = do
+> newSubjectName <- GTK.entryGetText addSubjectEntry
+> GTK.entrySetText addSubjectEntry ""
+> let
+>  addSubject' oldSubjects = do
+>   SD.createDirectory newSubject'sDirectory
+>   return $ oldSubjects ++
+>    (Subject
+>     {subjectInfo = newSubject'sInfo
+>     ,subjectRecordings=[]}):[]
+>   where
+>   newSubject'sDirectory =
+>    FP.combine
+>     subjectsDirectory
+>     (subjectName $ subjectInfoAnonymized newSubject'sInfo)
+>   stockSubjectInfoFeilds =
+>    ("name","",JS.showJSON newSubjectName) :
+>    ("id","",JS.showJSON (length oldSubjects)) :
+>    subjectInfoFeilds
+>   newSubject'sInfo =
+>    map
+>     (\(k,_,v)->(k,v))
+>     stockSubjectInfoFeilds
+> TO.updateIO
+>  subjectsObject
+>  addSubject'
+
+>subjectsListVBox
+> mainWindow
+> subjectsListVBoxAndUpdater
+>  =
+> fst subjectsListVBoxAndUpdater
+
+>initialSubjectsUpdater
+> subjectsListVBoxAndUpdater
+>  =
+> snd subjectsListVBoxAndUpdater
+
+>subjectsListVBoxAndUpdater
+> mainWindow
+> onSubjectSelected
+>  <<
+> simpleListView "Subjects" [] onSubjectSelected
+
+>notebook
+> mainPaned
+> recordingViewPaned
+> subjectInfoVBox
+>  << GTK.postGUISync $ do
+> nb <- GTK.notebookNew
+> GTK.notebookAppendPage nb recordingViewPaned "Logs"
+> GTK.notebookAppendPage nb subjectInfoVBox "Subject info"
+> GTK.widgetSetSensitivity nb False
+> panedAdd2 mainPaned nb
+> return nb
+
+>recordingViewPaned
+> mainWindow
+>  << GTK.postGUISync
+> GTK.hPanedNew
+
+>subjectInfoVBox
+> mainWindow
+>  << GTK.postGUISync $
+> vBoxNew False 0
+
+>recordingsListAndUpdater
+> recordingViewPaned
+> onRecordingSelected
+>  << GTK.postGUISync $ do
+> simpleListView "Recordings" [] onRecordingSelected
+
+>recordingsList
+> recordingsListAndUpdater
+> recordingViewPaned
+>  << GTK.postGUISync $ do
+> let (rl,_) = recordingsListAndUpdater
+> GTK.panedAdd1 recordingViewPaned rl
+> return rl
+
+>recordingsListUpdaterMVar
+> recordingsListAndUpdater
+>  << do
+> MV.newMVar $ snd recordingsListAndUpdater
+
+>onRecordingSelected
+> recordingsObject
+> recordingMaybeObject
+> recordingViewPaned1
+> recordingViewPaned2
+>  !
+> recordingName
+>  = do
+> recordings <- TO.getObjectValue recordingsObject
+> TO.update recordingMaybeObject
+>   (\_->Just $ case find
+>         (\thisRecording->
+>            recordingDateTime thisRecording
+>                          ==
+>                   recordingName)
+>         recordings of
+>    Just foundRecording -> foundRecording
+
+Yes we DO want to error out rather than returning Nothing here.
+find should NEVER fail here,
+if it does we want to know about it,
+for debugging purposes.
+
+>    Nothing -> error "Recordings list corupted unexpectedly.")
+> GTK.widgetSetSensitivity recordingViewPaned1 True
+> GTK.widgetSetSensitivity recordingViewPaned2 True
+
+>recordingMaybeObject
+> drawRecording
+>  << do
+> to <- TO.threadObject
+> TO.objectInit
+>  to
+>  (TO.SyncWithoutSignal
+>    (TO.SeedInitially $
+>      Nothing))
+>  drawRecording
+>  (TO.handleExceptionStdErr "recordingMaybeObject")
+> return to
+
+>drawRecording
+> logFileContentsObject
+> metaDataObject
+> subjectInfoAnonymized
+> subjectsDirectory
+> subjectMaybeObject
+> subjectName
+>  !
+> recordingMaybe
+> signal
+>  = do
+> subjectMaybe <- TO.getObjectValue subjectMaybeObject
+> case (subjectMaybe,recordingMaybe) of
+>  (Just subject,Just recording) -> do
+>   let
+>    subjectDirectory =
+>     FP.combine
+>      subjectsDirectory
+>      (subjectName $ subjectInfoAnonymized $ subjectInfo subject)
+>    recordingDirectory =
+>     FP.combine
+>      subjectDirectory
+>      $ recordingDateTime recording
+>    logFile = FP.combine recordingDirectory "log"
+>   logFileContents <- readFile logFile
+>   TO.update
+>    logFileContentsObject
+>    (\_->logFileContents)
+>   {-TO.update
+>    metaDataObject
+>    (\_->recordingMetaData recording)-}
+>  _ -> return ()
+
+>stockRecordingMetaData
+> stockFeildsToJSObject
+> recordingMetaDataFeilds
+>  =
+> stockFeildsToJSObject recordingMetaDataFeilds
+
+>metaDataObject
+
+ drawMetaData
+
+> recordingMetaDataFeilds
+>  << do
+> to <- TO.threadObject
+> TO.objectInit
+>  to
+>  (TO.SyncWithoutSignal
+>    (TO.SeedInitially $
+>      recordingMetaDataFeilds))
+>  (\a _ ->return ())
+
+  drawMetaData
+
+>  (TO.handleExceptionStdErr "metaDataObject")
+> return to
+
+
+>recordingViewPaned1
+> recordingViewPaned
+>  << GTK.postGUISync $ do
+> p <- GTK.vPanedNew
+> GTK.panedAdd2 recordingViewPaned p
+> GTK.widgetSetSensitivity p False
+> return p
+
+>recordingViewPaned2
+> recordingViewPaned1
+>  << GTK.postGUISync $ do
+> p <- GTK.vPanedNew
+> GTK.panedAdd2 recordingViewPaned1 p
+> return p
+
+>logViewVBox
+> recordingViewPaned1
+> logFileTextView
+> recordCommandHBox
+>  << GTK.postGUISync $ do
+> vb <- vBoxNew False 0
+> GTK.boxPackEnd vb logFileTextView GTK.PackGrow 0
+> GTK.boxPackEnd vb recordCommandHBox GTK.PackNatural 0
+> GTK.panedAdd1 recordingViewPaned1 vb
+> return vb
+
+>recordCommandHBox
+> recordButton
+> recordCommandLabel
+>  << GTK.postGUISync $ do
+> hb <- hBoxNew False 0
+> GTK.boxPackEnd hb recordButton GTK.PackNatural 0
+> GTK.boxPackEnd hb recordCommandLabel GTK.PackGrow 0
+> return hb
+
+>recordCommandLabel
+> mainWindow
+> recordCommand
+>  << GTK.postGUISync $ do
+> labelNew $ Just $ recordCommand "<log-file-path>"
+
+1:30 am on a school night and I'm reading gwern's essay http://www.gwern.net/Terrorism%20is%20not%20Effective !
+Goodnight!
+
+>recordButton
+> onRecordButtonPressed
+> mainWindow
+>  << GTK.postGUISync $ do
+> b <- GTK.buttonNewWithLabel "Record"
+> on b GTK.buttonActivated onRecordButtonPressed
+> return b
+
+>onRecordButtonPressed
+> recordingsObject
+> addRecording
+>  = do
+> updateIONoBlock
+>  recordingsObject
+>  addRecording
+
+>addRecording
+> subjectMaybeObject
+> subjectInfoAnonymized
+> subjectName
+> recordCommand
+> subjectsDirectory
+> stockRecordingMetaData
+> mainWindow
+> recordingMetaDataFeilds
+>  !
+> oldRecordings
+>  = do
+> subjectMaybe <- TO.getObjectValue subjectMaybeObject
+> case subjectMaybe of
+>  Just subject -> do
+>   GTK.postGUISync $ do
+>    GTK.widgetSetSensitivity mainWindow False
+>   zonedTime <- getZonedTime
+>   let
+>    localTime = zonedTimeToLocalTime zonedTime
+>    (year,month,day) = toGregorian $ localDay localTime
+>    timeOfDay = localTimeOfDay localTime
+>    hour = todHour timeOfDay
+>    min  = todMin  timeOfDay
+>    sec  = todSec  timeOfDay
+>    timeString =
+>     (show year) ++ "-" ++
+>     (show month) ++ "-" ++
+>     (show day) ++ "-" ++
+>     (show hour) ++ ":" ++
+>     (show min) ++ ":" ++
+>     (show sec)
+>    subjectDirectory =
+>     FP.combine
+>      subjectsDirectory
+>      (subjectName $ subjectInfoAnonymized $ subjectInfo subject)
+>    recordingDirectory =
+>     FP.combine
+>      subjectDirectory
+>      timeString
+>    recordingPath =
+>     FP.combine
+>      recordingDirectory
+>      "log"
+
+Ahh, the burning irony in that createDirectory can throw a "directory does not exist" error :D
+
+>   SD.createDirectory recordingDirectory
+>   let
+>    newRecording =
+>     Recording
+>      {recordingDateTime = timeString
+>      ,recordingMetaData = stockRecordingMetaData}
+>   (_,_,_,pHandle) <-
+>    createProcess (shell (recordCommand  recordingPath))
+>   waitForProcess pHandle
+>   GTK.postGUISync $ do
+>    GTK.widgetSetSensitivity mainWindow True
+>   return $ oldRecordings ++ (newRecording : [])
+>  Nothing ->
+>   return oldRecordings
+
+Woke up too early this morning.
+Whenever I sleep too little,
+my stomache gives me trouble.
+Time for tea.
+
+>logFileTextBuffer
+> mainWindow
+>  << GTK.postGUISync $ do
+> GTK.textBufferNew Nothing
+
+When I think about last night,
+or was it the night before?
+The days run together,
+as it grows dark by 4pm,
+and I hardly go outside anyways.
+Anyways,
+the girl WAS gorgeous!
+It wasn't just the alchohol,
+careful examination of the facebook fotos confirms this fact. :D :D
+
+>logFileTextView
+> logFileTextBuffer
+>  << GTK.postGUISync $ do
+> t <- GTK.textViewNewWithBuffer logFileTextBuffer
+> GTK.textViewSetEditable t False
+> return t
+
+>metaDataVBox
+> recordingViewPaned2
+>  << GTK.postGUISync $ do
+> vb <- vBoxNew False 0
+> GTK.panedAdd1 recordingViewPaned2 vb
+> return vb
+
+>dataFileVBox
+> filterButtonsHBox
+> datFileTextView
+> plotViewCommandHBox
+> plotSaveCommandHBox
+> recordingViewPaned2
+>  << GTK.postGUISync $ do
+> vb <- vBoxNew False 0
+> GTK.boxPackEnd vb plotSaveCommandHBox GTK.PackNatural 0
+> GTK.boxPackEnd vb plotViewCommandHBox GTK.PackNatural 0
+> GTK.boxPackEnd vb datFileTextView GTK.PackGrow 0
+> GTK.boxPackEnd vb filterButtonsHBox GTK.PackNatural 0
+> GTK.panedAdd2 recordingViewPaned2 vb
+> return vb
+
+>plotViewCommandHBox
+> plotViewEntry
+> plotViewButton
+>  << GTK.postGUISync $ do
+> hb <- hBoxNew False 0
+> GTK.boxPackEnd hb plotViewButton GTK.PackNatural 0
+> GTK.boxPackEnd hb plotViewEntry GTK.PackGrow 0
+> return hb
+
+>plotViewEntry
+> mainWindow
+>  << GTK.postGUISync $ do
+> GTK.entryNew
+
+>plotViewButton
+> plotViewEntry
+>  << GTK.postGUISync $ do
+> b <- buttonNewWithLabel "view plot"
+> b `on` buttonActivated $ do
+>  command <- entryGetText plotViewEntry
+>  createProcess (shell command)
+>  return ()
+> return b
+
+Nice song :)
+http://www.jamendo.com/en/track/368189/closing-song
+
+>plotSaveCommandHBox
+> plotSaveEntry
+> plotSaveButton
+>  << GTK.postGUISync $ do
+> hb <- hBoxNew False 0
+> GTK.boxPackEnd hb plotSaveButton GTK.PackNatural 0
+> GTK.boxPackEnd hb plotSaveEntry GTK.PackGrow 0
+> return hb
+
+One thing that strikes me about reading gwern.net 's essays
+is that he is so utilitarian in his thinking.
+He always makes the assumption that society had some kind of goal.
+Like technological advancement was our goal.
+Society is just an adhock collection of people acting.
+It might have a direction,
+but to look for purpose
+one must look to the individual
+or some set of individuals at least
+the whole is in conflict more than unity.
+
+>plotSaveEntry
+> mainWindow
+>  << GTK.postGUISync $ do
+> GTK.entryNew
+
+>plotSaveButton
+> plotSaveEntry
+>  << GTK.postGUISync $ do
+> b <- buttonNewWithLabel "save plot"
+> b `on` buttonActivated $ do
+>  command <- entryGetText plotSaveEntry
+>  createProcess (shell command)
+>  return ()
+> return b
+
+>datFileTextView
+> datFileTextBuffer
+>  << GTK.postGUISync $ do
+> t <- GTK.textViewNewWithBuffer datFileTextBuffer
+> GTK.textViewSetEditable t False
+> return t
+
+>datFileTextBuffer
+> mainWindow
+>  << GTK.postGUISync $ do
+> textBufferNew Nothing
+
+>datFileContentsObject
+> drawDatFileContents
+>  << do
+> to <- TO.threadObject
+> objectInit
+>  to
+>  (TO.SyncWithoutSignal (TO.SeedInitially ""))
+>  drawDatFileContents
+>  (handleExceptionStdErr "datFileContentsObject")
+> return to
+
+Perhaps the hardest part about coding is food.
+Hungry, hungry, hungry.
+It seems that hyperfocus
+and taking care of ones self
+are very difficult traits to simultaneously establish and balance.
+
+I wanted to come home and code after school today
+I explicitly went to the store so that I would have something to eat.
+Right now I have:
+oatmeal
+buns
+spreadable cheeses
+expensive scrunchy noodles
+expensive pesto
+cherry tomatoes
+spinache
+letuce
+regular tomatoes
+rice
+bugr
+It's 13:00,
+can't decide if I want to go cook a meal and have european style hot lunch
+or if I should just have a bun with spinache and cheese spread
+
+I have to email my cousin,
+since she sent me a letter
+she sent me the contact of an accountant she knows in Prague
+said accountant knew my aunt,
+and once lived in this house.
+Apparently she could help me get my životenský list
+which would in turn help me get a visa
+which I badly need.
+But I'm not sure how I should act with this accountant lady
+if I'll have to pay her
+and if I shouldn't just go get the životenský list myself
+I should at least read up on the issue so I'm not asking her stupid questions and wasting her time.
+I guess I'll write her thanking her for her offer,
+asking her if she'd like tea.
+But also say that I need time to look into the issue further.
+
+It has been decided.  I will have a hot lunch.
+
+The seccond hardest thing about programming,
+after food,
+is getting up,
+when you have headphones to your ears,
+and you're not sure how long till the current song finishes.
+Most of the time,
+I just carry my laptop with me.
+
+>drawDatFileContents
+> datFileTextBuffer
+>  !
+> contents
+> signal
+>  = GTK.postGUISync $ do
+> textBufferSetText
+>  datFileTextBuffer
+>  contents
+
+>logFileContentsObject
+> drawLogFileContents
+>  << do
+> to <- TO.threadObject
+> objectInit
+>  to
+>  (TO.SyncWithoutSignal (TO.SeedInitially ""))
+>  drawLogFileContents
+>  (handleExceptionStdErr "logFileContentsObject")
+> return to
+
+>drawLogFileContents
+> logFileTextBuffer
+>  !
+> contents
+> signal
+>  = GTK.postGUISync $ do
+> textBufferSetText
+>  logFileTextBuffer
+>  contents
+
+>filterButtonsHBox
+> filters
+> onFilterSelected
+>  <<
+> TBL.toggleButtonListNew
+>  onFilterSelected
+>  $ map
+>     filterName
+>     filters
+
+>onFilterSelected
+> filters
+> logFileContentsObject
+> datFileContentsObject
+>  !
+> filterName'
+>  = do
+> logFileContents <- TO.getObjectValue logFileContentsObject
+> let
+>  filter =
+>   case find (\filter'->filterName filter' == filterName') filters of
+>    Just filter' -> filter'
+>    Nothing -> error "Impossible!  Filters list corrupted."
+> TO.update
+>  datFileContentsObject
+>  (\_->(logToDat filter) logFileContents)
+
+>onSubjectSelected
+> subjectsObject
+> subjectMaybeObject
+> subjectInfos
+> subjectName
+> notebook
+> recordingViewPaned1
+> recordingViewPaned2
+>  !
+> subject
+
+FOOOOD!
+The hunger is eating my soul!
+Every time I do pasta with pesto,
+I feel a binge comming on,
+a great beast rising up within me
+gulping down untold tons of nuddly goodness
+the tickling in my stomache
+as if there could never be enough,
+and it burns and itches within me
+the hunger and desire to eat!
+
+>  = do
+> subjects <- TO.getObjectValue subjectsObject
+
+On Friday I was rather drunk,
+I don't drink,
+I mean,
+I've had 4 beers in the last 12 months.
+All of them were last friday.
+I kissed a girl,
+I remember my mind racing,
+Urgent, anxious, thoughts.
+All fealings displaced by the numbness of alcohol.
+And yet an intense boredom of it,
+the tong moving in and out,
+and a constant questioning of technique.
+
+But now I feel hungry,
+and as I listen to
+http://incompetech.com/music/royalty-free/index.html?collection=012
+"blown away",
+I feel the tickling
+A painful ecstacy trickling through my gullut.
+No racing or anxious thoughts
+For a moment,
+a perfect, intense, and all encompasing blank.
+
+Yes HUNGER is the ultimate drug!
+The strongest feeling I'll ever experience.
+
+Just don't abuse it,
+you'll get depressed.
+
+> let
+>  currentSubject :: Subject
+>  currentSubject =
+>   fromMaybe
+>    (error "Subjects list corupted")
+>    $ find
+>       (\thisSubject->
+>         (subjectName $ subjectInfo thisSubject)
+>                         ==
+>                       subject)
+>       subjects
+> TO.update
+>  subjectMaybeObject
+>  (\_ ->
+>    Just currentSubject)
+> GTK.widgetSetSensitivity notebook True
+> GTK.widgetSetSensitivity recordingViewPaned1 True
+> GTK.widgetSetSensitivity recordingViewPaned2 False
+
+You know, the point of all these random comments
+is not just me being bored.
+I want to make computer programming more "human".
+I don't like the idea of a programmer being just someone in a dark room,
+I think I'll add pictures next,
+but for that,
+I need to move out of the text editor.
+
+I want to draw pictures of skunks
+spraying all the mutable state.
+
+>data Subject = Subject
+> {subjectInfo        :: SubjectInfo
+> ,subjectRecordings  :: [Recording]}
+
+>type SubjectInfo = [(String,JS.JSValue)]
+
+>subjectName :: SubjectInfo -> String
+>subjectName ! subjectInfo = fromJSString name
+> where
+>  (Just (_,JSString name)) =
+>   find
+>    (\(k,_)->k=="name")
+>    subjectInfo
+
+>subjectInfos :: [Subject] -> [SubjectInfo]
+>subjectInfos = map subjectInfo
+
+>data Recording = Recording
+> {recordingDateTime :: String
+> ,recordingMetaData :: JSObject JSValue}
+
+>subjectsObject
+> newFileHeirarchy
+>  << do
+> TO.threadObject
+
+>subjectsObjectInitialize
+> initialSubjects
+> subjectsObject
+> drawSubjects
+>  << do
+> TO.objectInit
+>  subjectsObject
+>  (TO.SyncWithoutSignal (TO.SeedInitially initialSubjects))
+>  drawSubjects
+>  (TO.handleExceptionStdErr "subjectsObject")
+> return subjectsObject
+
+>subjectMaybeObject
+> initialSubjects
+> drawSelectedSubject
+>  << do
+> to <- TO.threadObject
+> TO.objectInit
+>  to
+>  (TO.SyncWithoutSignal
+>    (TO.SeedInitially $
+>      case initialSubjects of
+>       [] -> Nothing
+>       (subject:_) -> Just subject))
+>  drawSelectedSubject
+>  (TO.handleExceptionStdErr "subjectMaybeObject")
+> return to
+
+>drawSelectedSubject
+> recordingsObject
+>  !
+> subjectMaybe
+> signal
+>  =
+> TO.update
+>  recordingsObject
+>  (\_->
+>   case subjectMaybe of
+>    Just subject -> subjectRecordings subject
+>    Nothing -> [])
+
+>initialSubjects
+> initialSubjectInfos
+> subjectsDirectory
+> subjectInfoAnonymized
+> subjectName
+> trueDirectoryContents
+> exitMethod
+> stockRecordingMetaData
+>  << do
+> recordingss <- mapM loadRecordings initialSubjectInfos
+> return $ zipWith
+>  (\thisSubjectInfo recordings ->
+>     Subject{subjectInfo=thisSubjectInfo
+>            ,subjectRecordings=recordings})
+>  initialSubjectInfos
+>  recordingss
+> where
+>  subjectDirectory subjectInfo =
+>   FP.combine
+>    subjectsDirectory
+>    (subjectName $ subjectInfoAnonymized subjectInfo)
+>  loadRecordings subjectInfo = do
+>   recordingTimes <-
+>    trueDirectoryContents (subjectDirectory subjectInfo)
+>   mapM
+>    (\recordingTime ->do
+>      let
+>       metaDataPath =
+>        FP.combine
+>         (subjectDirectory subjectInfo)
+>         recordingTime
+
+>      exists <- SD.doesFileExist metaDataPath
+>      metaData <- case exists of
+>       True ->
+>        loadMetaData metaDataPath
+>       False ->
+>        return stockRecordingMetaData
+>      return $ Recording
+>       {recordingDateTime=recordingTime
+>       ,recordingMetaData=metaData})
+>    recordingTimes
+>  loadMetaData metaDataDirectory = do
+>   metaDataText <- readFile $ FP.combine metaDataDirectory "metadata.json"
+>   let metaDataR = decode metaDataText
+>   case metaDataR of
+>    Ok metaData' -> return metaData'
+>    Error err -> do
+>     exitMethod
+>      (Exit.ExitFailure 1)
+>      (Just err)
+>     return $ error "We don't get here."
+
+>initialSubjectInfos
+> studyFile
+> exitMethod
+>  <<
+> case JS.decode studyFile :: JS.Result [SubjectInfo] of
+>  JS.Ok subjects -> return subjects
+>  JS.Error e ->  do
+>   exitMethod
+>    (Exit.ExitFailure 1)
+>    (Just $ "Could not load json file.  It must be corrupted: "++ e)
+>   return $ error "We don't get here."
+
+Hmm, somewhere there is a block on an MVar opperation...
+I HATE blocks on mvar opperations!
+
+>subjectsUpdaterMVar
+> initialSubjectsUpdater
+>  <<
+> newMVar initialSubjectsUpdater
+
+If you delete the SubjectsList widget
+and then recreate it
+before winow build is complete
+then it will be unfocusable.
+
+If you delete it,
+and then recreate it
+before widgetShowAll has been run on mainWindow
+then GTK will freeze indefinitely.
+
+There seems to be no way to make this code work :(
+
+>drawSubjects
+> mainWindowInitializedTVar
+> subjectsUpdaterMVar
+> subjectName
+> studyFilePath
+> subjectInfos
+> anonStudyFilePath
+> subjectInfosAnonymize
+> mainWindow
+>  !
+> subjects
+> signal
+>  = do
+> GTK.postGUISync $ do
+>  GTK.widgetShowAll mainWindow
+>  (SLV.UpdateTreeView subjectsUpdater) <-
+>   MV.takeMVar subjectsUpdaterMVar
+>  let subjectNames = map (subjectName.subjectInfo) subjects
+>  newUpdater <- subjectsUpdater subjectNames
+>  MV.putMVar subjectsUpdaterMVar newUpdater
+> let
+>  anonSubjectInfos :: [SubjectInfo]
+>  anonSubjectInfos = subjectInfosAnonymize $ subjectInfos subjects
+>  normalSubjectInfos :: [SubjectInfo]
+>  normalSubjectInfos = subjectInfos subjects
+> writeFile
+>  studyFilePath
+>  $ JS.encode normalSubjectInfos
+> writeFile
+>  anonStudyFilePath
+>  $ JS.encode anonSubjectInfos
+
+>recordingsObject
+>  << do
+> TO.threadObject
+
+>recordingsObjectInitialize
+> recordingsObject
+> drawRecordings
+>  << do
+> TO.objectInit
+>  recordingsObject
+>  (TO.SyncWithoutSignal
+>    (TO.SeedInitially $
+>      []))
+>  drawRecordings
+>  (TO.handleExceptionStdErr "recordingsObject")
+> return recordingsObject
+
+>drawRecordings
+> recordingsListUpdaterMVar
+> subjectsObject
+> subjectMaybeObject
+> subjectName
+>  !
+> recordings
+> signal
+>  = GTK.postGUISync $ do
+> subjectMaybe <- TO.getObjectValue subjectMaybeObject
+> case subjectMaybe of
+>  Just subject -> do
+>   TO.update
+>    subjectsObject
+>    (\subjects->
+>      map
+>       (\thisSubject->
+>         case (subjectName $ subjectInfo thisSubject)
+>                         ==
+>              (subjectName $ subjectInfo subject) of
+>          True  ->
+>           thisSubject{subjectRecordings = recordings}
+>          False -> thisSubject)
+>       subjects)
+>   (UpdateTreeView updater) <-
+>    MV.takeMVar recordingsListUpdaterMVar
+>   newUpdater <-
+>    updater $ map recordingDateTime recordings
+>   MV.putMVar recordingsListUpdaterMVar newUpdater
+>  Nothing -> return (error "Something in the subject selecting process badly broke!")
+
+Hungry again!
+How many times do I have to eat in my life,
+before I'm done eating???
+
+It's like a sand castle,
+the best you can do is stack rocks in it,
+but eating rocks,
+even if they keep you full,
+makes your tummy ache.
+
+Once,
+I decided I had enough with this hunger,
+I decided it must come so often,
+because I was eating foods that were too "simple".
+I decided that my only snack food would be oatmeal
+after a few days,
+all I could do was stare
+and as the oatmeal grew cold,
+my distaste for it only grew worse
+the dizzy trembling depression and anxiety of hunger buzzed in my head
+but the oatmeal could not be stomached
+I just felt sick and tired.
+Even my head began to droop,
+and I stared off at the wall,
+as if my soul had abandoned me.
+
+It wasn't till I bribed myself with sweet junk food that I could eat again,
+and then I binged myself up a nice big stomach ache and some diarea to boot!
+
+So my advice on food,
+is to keep on shoving it down your throat whenever you're the slightest bit hungry,
+just like fucking syphilus,
+or Sisyphus or however the stone up the hill guy is called.
+
+>exitMethod
+> gtkThread
+> exitMVar
+>  !
+> signal
+> messageMaybe
+>  = do
+> case messageMaybe of
+>  Just message -> do
+>   putStrLn message
+>   GTK.postGUISync $ do
+>    dialog <- GTK.messageDialogNew
+>     Nothing
+>     []
+>     GTK.MessageInfo
+>     GTK.ButtonsOk
+>     message
+>    GTK.dialogRun dialog
+>    return ()
+>  Nothing -> return ()
+> putStrLn "Goodbye!"
+> MV.putMVar exitMVar (Exit.ExitFailure 1)
+> CM.forever $ CC.threadDelay 100000
+
+>exitMVar <?< newEmptyMVar
+
+>exit exitMVar mainWindowInitializedTVar =?= do
+> STM.atomically
+>  $ writeTVar
+>     mainWindowInitializedTVar
+>     True
+> exitCode <- takeMVar exitMVar
+> exitWith exitCode
