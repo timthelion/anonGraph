@@ -859,6 +859,29 @@ for debugging purposes.
 > GTK.widgetSetSensitivity plotViewCommandHBox False
 > GTK.widgetSetSensitivity plotSaveCommandHBox False
 
+Sadness,
+has got to be one of the most pleasant fealings.
+It is so close to the numb blank which we all crave.
+Quality sadness,
+is without anxiety,
+without stress,
+just a low sinking,
+unpeasant thoughts not bothering to poke their heads above the blue tide
+
+I listen to the same music,
+over and over,
+
+sit all alone,
+and look how the street lights,
+paint geometric shadows through the windows,
+and the meloncholy fog
+blankets Prague
+
+It's safe,
+perfect.
+
+I never want to be happy again.
+
 >recordingMaybeObject
 >  <<
 > TO.threadObject
@@ -1014,10 +1037,22 @@ I'll still be a virgin too!
 >  =
 > stockFeildsToJSObject recordingMetaDataFeilds
 
+>data MetaData = MetaData
+> {metaDataContents :: [(String,JS.JSValue)]
+> ,metaDataPath :: Maybe FilePath}
+
+This type is a comment rather than code,
+because the type declaration mechanism in haskarrow
+is currently rather cumbersome.
+
+>data PathUpdatedSignal a =
+>   PathUpdated    a
+> | PathNotUpdated a
+
+metaDataObject :: ThreadObject MetaData (PathUpdatedSignal a)
+
 >metaDataObject
-
- drawMetaData
-
+> drawMetaData
 > recordingMetaDataFeilds
 >  << do
 > to <- TO.threadObject
@@ -1025,14 +1060,118 @@ I'll still be a virgin too!
 >  to
 >  (TO.SyncWithoutSignal
 >    (TO.SeedInitially $
->      recordingMetaDataFeilds))
->  (\a _ ->return ())
-
-  drawMetaData
-
+>      MetaData
+>       {metaDataContents = recordingMetaDataFeilds
+>       ,metaDataPath = Nothing}))
+>  drawMetaData
 >  (TO.handleExceptionStdErr "metaDataObject")
 > return to
 
+Here in the hackerspace it's fine,
+warm,
+good people.
+But not enough healty food!
+I'm hungry damnit,
+and I cannot program when I'm hungry!
+
+FOOOOOD!!!!!
+
+When I was younger,
+I might have been overwhelmed by this situation,
+should I go spend an hour eating again
+(I already ate like 3 times today for heavens sakes!)
+Should I get take out and waste the plastic or metal disposable container?
+No!
+I'm an environmentalist for heavens sakes!
+
+Today I'll just have a chocolate bar,
+it's unhealty,
+I can feel that plaque growing on my teath as I eat it now.
+And it might give me another stomache ache,
+or the anxious tremmors.
+
+What can I do though,
+life is short.
+And the only way to get anything out of it,
+is to shorten it even farther!
+
+When understanding how this code fits together,
+one must realize a certain limitation on the "globalness" of the mutable objects.
+
+Objects may be globally accessable,
+and globally mutable,
+but that does NOT mean there is chaos!
+
+Only certain threads/parts of the program actually DO mutate a given object.
+
+Once the visual editor is finished for haskarrow,
+this will be very clear.
+
+But for now,
+take this promise:
+
+The metaDataObject is ONLY ever updated by:
+The metaDataPathObject
+And the metaDataForm on change callback.
+
+When the metaDataPathObject is updated,
+it loads the meta data from disk and updates the
+metaDataObject.
+
+It sends a signal to drawMetaData which tells it not
+to save that meta data straight back to the disk ;)
+but rather to display it to the metaDataForm.
+
+My my, when I write comments like this
+I always feel such empathy for the reader.
+
+"Sends a signal"
+
+what does that mean to you?
+If I were reading this,
+I would think that it meant that some event got triggered or something.
+It doesn't mean that at all,
+however.
+
+Sends a signal means,
+that when some bit of code changes the value of an object
+by using update they can instead call updateWithSignal.
+This passes an extra value to the syncOnGet method(drawMetaData)
+this bit of extra data is called a signal
+within the threadObject framework.
+
+>drawMetaData
+> metaDataFormObject
+> recordingViewPaned2
+> onMetaDataChanged
+>  !
+> metaData
+> signal
+>  = do
+> case signal of
+>  PathUpdated _ -> do
+>   TO.updateIO
+>    metaDataFormObject
+>    (\metaDataForm -> GTK.postGUISync $ do
+>      GTK.destroyWidget metaDataForm
+>      jsInputNew metaData onMetaDataChanged)
+>   
+
+For whatever reason,
+I find myself repeatedly drawn
+to the Harlow attachment study videos
+on youtube
+
+https://www.youtube.com/watch?v=hsA5Sec6dAI
+
+https://www.youtube.com/watch?v=e5I6d_vq-Cc
+
+https://www.youtube.com/watch?v=OrNBEhzjg8I
+
+Perhaps there is something familiar and reasuring about such nhihlism.
+And how the baby monkey hugs himself when he is thrown out into the world alone.
+Just as I do,
+for I too am alone.
 
 >recordingViewPaned1
 > recordingViewPaned
@@ -1048,6 +1187,44 @@ I'll still be a virgin too!
 > p <- GTK.vPanedNew
 > GTK.panedAdd2 recordingViewPaned1 p
 > return p
+
+This is a great website: http://synthematik.net/
+
+So much free music!
+I can just feel the freedome in the air.
+Taste the growing victory of hope!
+Particularly great is:
+http://synthematik.net/releases/sntk-dig-12-mental-discipline-fallen-stars-cdm-2011/
+
+Creative Commons Attribution-NonCommercial-NoDerivs 3.0
+
+Sigh,
+Why no derivs :(
+
+Totally defeats the purpose of CC licencing.
+
+Almost like me refusing to relicence from GPL to BSD,
+except eviler...
+
+The whole point of free society is to be inspired and derive,
+remix, build, create.
+That's what makes it so different from consumer society.
+
+We are not all helpless consumers,
+subject to the whims of corporations.
+
+We are free!
+we are makers!
+We build!
+We decide!
+We rule our lives!
+
+But when the music in our ears is licenced noderives,
+and we want to put some stupid vid on youtube with that as the background
+we can't.
+Our freedome is hampered.
+
+It's so tragic :(
 
 >logViewVBox
 > recordingViewPaned1
@@ -1614,8 +1791,7 @@ spraying all the mutable state.
 >subjectInfos = map subjectInfo
 
 >data Recording = Recording
-> {recordingDateTime :: String
-> ,recordingMetaData :: JSObject JSValue}
+> {recordingDateTime :: String}
 
 >subjectsObject
 > newFileHeirarchy

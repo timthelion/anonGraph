@@ -23,9 +23,12 @@ main = do
    GTK.onDestroy window GTK.mainQuit
    GTK.widgetShowAll window
    GTK.mainGUI
-   return ()-}
+   return () -}
 
-jsInputNew :: [(String,String,JSValue)] -> (Result [(String,JSValue)] -> IO()) -> IO VBox
+jsInputNew ::
+ [(String,String,JSValue)] ->
+ (Result [(String,JSValue)] -> IO())->
+ IO Widget
 jsInputNew
  feilds
  onUpdate
@@ -119,4 +122,4 @@ jsInputNew
     _ -> return $ error "Unsupported value type.  We only support Bool Rational and String, sorry!"
    GTK.boxPackStart vb element GTK.PackNatural 0
  mapM_ addFeild feilds
- return vb
+ return $ castToWidget vb
