@@ -130,7 +130,9 @@ Parametric values:
 
 >subjectInfoFields :: [(String,String,JS.JSValue)]
 >subjectInfoFields =?=
-> [("string","String",JS.JSString $ JS.toJSString "")
+> [("name","",JS.showJSON "")
+> ,("id","",JS.showJSON (0::Int))
+> ,("string","String",JS.JSString $ JS.toJSString "")
 > ,("bool","Bool",JS.JSBool False)
 > ,("rational","Rational",JS.JSRational False (0%1))]
 
@@ -761,14 +763,14 @@ Today, the energy of life flows through me :)
 >    FP.combine
 >     subjectsDirectory
 >     (subjectName $ subjectInfoAnonymized newSubject'sInfo)
->   stockSubjectInfoFields =
->    ("name","",JS.showJSON newSubjectName) :
->    ("id","",JS.showJSON (length oldSubjects)) :
->    subjectInfoFields
 >   newSubject'sInfo =
 >    map
->     (\(k,_,v)->(k,v))
->     stockSubjectInfoFields
+>     (\(k,_,v)->
+>      case k of
+>       "name"->(k,JS.showJSON newSubjectName)
+>       "id"->(k,JS.showJSON (length oldSubjects))
+>       _->(k,v))
+>     subjectInfoFields
 > TO.updateIO
 >  subjectsObject
 >  addSubject'
@@ -2035,12 +2037,12 @@ somehow.
 >   GTK.widgetDestroy subjectInfoForm
 >  Nothing -> return ()
 > newForm<-jsInputNew
->  (zipWith
+>  (drop 2 $ zipWith
 >  (\(k,v) (_,l,_)->(k,l,v))
 >   thisSubjectInfo
 >   subjectInfoFields)
->  syncSubjectInfo
-> GTK.boxPackEnd subjectInfoVBox newForm GTK.PackNatural 0
+>  (syncSubjectInfo thisSubjectInfo)
+> GTK.boxPackStart subjectInfoVBox newForm GTK.PackNatural 0
 > GTK.widgetShowAll subjectInfoVBox
 > MV.putMVar subjectInfoFormMVar newForm
 
@@ -2048,6 +2050,7 @@ somehow.
 > subjectsObject
 > errorObject
 >  !
+> thisSubject'sOldInfo
 > newSubjectInfoR
 >  = do
 > case newSubjectInfoR of
@@ -2056,13 +2059,26 @@ somehow.
 >    subjectsObject
 >    (\subjects->
 >      map
->       (replaceSubjectInfo newSubjectInfo)
+>       (replaceSubjectInfo completeSubjectInfoNew)
 >       subjects)
 >   where
+>    (Just name) = find (\(k,v)->k=="name") thisSubject'sOldInfo
+>    (Just id) = find (\(k,v)->k=="id") thisSubject'sOldInfo
+>    completeSubjectInfoNew =
+>     name : id :
+>     newSubjectInfo
 >    replaceSubjectInfo subjectInfoNew subjectOld =
 >     let subjectInfoOld = subjectInfo subjectOld in
 >     subjectOld{
 >      subjectInfo=
+
+This is a really bad design,
+don't copy this,
+whatever you do. ;)
+
+Storing the name and id
+in the same object as the fields was just BAD.
+
 >       case (lookup "name" subjectInfoNew) == (lookup "name" subjectInfoOld) of
 >        True  -> subjectInfoNew
 >        False -> subjectInfoOld}
@@ -2070,6 +2086,8 @@ somehow.
 >   TO.update
 >    errorObject
 >    (\_->err)
+
+Nice: http://new.weavesilk.com/
 
 >recordingsObject
 >  << do
