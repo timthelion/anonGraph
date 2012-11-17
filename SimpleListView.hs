@@ -6,26 +6,32 @@ module SimpleListView where
 import Graphics.UI.Gtk as GTK
 import Control.Concurrent.MVar as MV
 
-{-
-main :: IO ()
+{-main :: IO ()
 main = do
    initGUI       -- is start
    window <- windowNew
-   (treeview,UpdateTreeView updateList) <- simpleListView "Subjects" ["Fred","Bob","Mary"] putStrLn
+   (treeview,UpdateTreeView updateList) <- simpleListView "Subjects" ["Fred","Bob","Mary"] putStr
    containerAdd window treeview
    onDestroy window mainQuit
    widgetShowAll window
-   updateList' <- updateList $ map show [1..10]
+   updateList' <- updateList (map show [1..10]) putStrLn
    mainGUI
    return ()-}
 
-newtype UpdateTreeView = UpdateTreeView ([String] -> IO UpdateTreeView)
+newtype UpdateTreeView =
+ UpdateTreeView
+  ([String] -> (String -> IO()) ->
+   IO UpdateTreeView)
 
-simpleListView :: String -> [String] -> (String -> IO()) -> IO (GTK.VBox,UpdateTreeView)
+simpleListView ::
+ String ->
+ [String] ->
+ (String -> IO()) ->
+ IO (GTK.Widget,UpdateTreeView)
 simpleListView title intitialListItems onSelect = do
  vb <- GTK.vBoxNew False 0
  let
-  createListView listItems =
+  createListView listItems onSelect' =
    do
     list <- listStoreNew listItems
     listMVar <- MV.newMVar list
@@ -43,9 +49,9 @@ simpleListView title intitialListItems onSelect = do
 
     tree <- GTK.treeViewGetSelection treeview
     GTK.treeSelectionSetMode tree  SelectionSingle
-    GTK.onSelectionChanged tree (oneSelection listMVar tree onSelect)
+    GTK.onSelectionChanged tree (oneSelection listMVar tree onSelect')
     let
-     updateList1 newListItems =
+     {-updateList1 newListItems =
       do
        putStrLn "1"
        newList <- listStoreNew newListItems
@@ -74,16 +80,16 @@ simpleListView title intitialListItems onSelect = do
       do
        GTK.listStoreRemove list 0
        -- SimpleListView: Prelude.head: empty list
-       return $ UpdateTreeView updateList4
-     updateList5 newListItems = --Works!
+       return $ UpdateTreeView updateList4 -}
+     updateList5 newListItems onSelect'' = --Works!
       do
        GTK.widgetDestroy treeview
-       (_,update) <- createListView newListItems
+       (_,update) <- createListView newListItems onSelect''
        widgetShowAll vb
        return update
     return $ (treeview,UpdateTreeView updateList5)
- (_,update) <- createListView intitialListItems
- return (vb,update)
+ (_,update) <- createListView intitialListItems onSelect
+ return (GTK.castToWidget vb,update)
 
 
 oneSelection :: MV.MVar (GTK.ListStore String) -> GTK.TreeSelection -> (String -> IO ()) ->  IO ()

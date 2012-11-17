@@ -128,14 +128,14 @@ Parametric values:
 >        "cp "++filePathOfDatFile++
 >        " "++plotFile)}]
 
->subjectInfoFeilds :: [(String,String,JS.JSValue)]
->subjectInfoFeilds =?=
+>subjectInfoFields :: [(String,String,JS.JSValue)]
+>subjectInfoFields =?=
 > [("string","String",JS.JSString $ JS.toJSString "")
 > ,("bool","Bool",JS.JSBool False)
 > ,("rational","Rational",JS.JSRational False (0%1))]
 
->recordingMetaDataFeilds :: [(String,String,JS.JSValue)]
->recordingMetaDataFeilds =?=
+>recordingMetaDataFields :: [(String,String,JS.JSValue)]
+>recordingMetaDataFields =?=
 > [("string","String",JS.JSString $ JS.toJSString "")
 > ,("bool","Bool",JS.JSBool False)
 > ,("rational","Rational",JS.JSRational False (0%1))]
@@ -243,7 +243,7 @@ I want a refund!
   (\info-> obj where (JSObject obj) = makeObj info)
 
 
->stockFeildsToJSObject
+>stockFieldsToJSObject
 >  !
 > feilds
 >  =
@@ -584,6 +584,11 @@ Just read and read and read.
 >  subjectsDirectory
 >  (subjectName $ subjectInfoAnonymized $ subjectInfo subject)
 
+>recordingDirectory ::
+> (Subject -> FilePath) ->
+> Subject ->
+> Recording ->
+> FilePath
 >recordingDirectory
 > subjectDirectory
 >  !
@@ -736,9 +741,9 @@ Today, the energy of life flows through me :)
 >addSubject
 > addSubjectEntry
 > subjectsObject
-> subjectInfoFeilds
+> subjectInfoFields
 > subjectInfoAnonymized
-> stockFeildsToJSObject
+> stockFieldsToJSObject
 > subjectsDirectory
 > subjectName
 >  = do
@@ -756,14 +761,14 @@ Today, the energy of life flows through me :)
 >    FP.combine
 >     subjectsDirectory
 >     (subjectName $ subjectInfoAnonymized newSubject'sInfo)
->   stockSubjectInfoFeilds =
+>   stockSubjectInfoFields =
 >    ("name","",JS.showJSON newSubjectName) :
 >    ("id","",JS.showJSON (length oldSubjects)) :
->    subjectInfoFeilds
+>    subjectInfoFields
 >   newSubject'sInfo =
 >    map
 >     (\(k,_,v)->(k,v))
->     stockSubjectInfoFeilds
+>     stockSubjectInfoFields
 > TO.updateIO
 >  subjectsObject
 >  addSubject'
@@ -783,7 +788,7 @@ Today, the energy of life flows through me :)
 > mainWindow
 > onSubjectSelected
 >  <<
-> simpleListView "Subjects" [] onSubjectSelected
+> simpleListView "Subjects" [] (onSubjectSelected [])
 
 >notebook
 > mainPaned
@@ -811,7 +816,7 @@ Today, the energy of life flows through me :)
 > recordingViewPaned
 > onRecordingSelected
 >  << GTK.postGUISync $ do
-> simpleListView "Recordings" [] onRecordingSelected
+> simpleListView "Recordings" [] (onRecordingSelected Nothing [])
 
 >recordingsList
 > recordingsListAndUpdater
@@ -826,33 +831,73 @@ Today, the energy of life flows through me :)
 >  << do
 > MV.newMVar $ snd recordingsListAndUpdater
 
+Great album! Episodes is especially good.
+http://www.23seconds.org/064.htm
+Better licence.
+
+http://graciellita.bandcamp.com/
+
+But no honestly,
+the song is great to! :D
+
+>{-onRecordingSelected ::
+> TO.ThreadObject (Maybe Recording) a ->
+> TO.ThreadObject (Maybe Subject) b ->
+> GTK.VPaned ->
+> GTK.VPaned ->
+> GTK.TextView ->
+> GTK.HBox ->
+> GTK.HBox ->
+> TO.ThreadObject (Maybe FilePath) c ->
+> FilePath ->
+> (Maybe Subject) ->
+> [Recording] ->
+> String ->
+> IO ()-}
+
 >onRecordingSelected
-> recordingsObject
 > recordingMaybeObject
+> subjectMaybeObject
 > recordingViewPaned1
 > recordingViewPaned2
 > datFileTextView
 > plotViewCommandHBox
 > plotSaveCommandHBox
+> metaDataPathObject
+> recordingDirectory
 >  !
+> subjectMaybe
+> recordings
 > recordingName
 >  = do
-> recordings <- TO.getObjectValue recordingsObject
-> TO.update recordingMaybeObject
->   (\_->Just $ case find
->         (\thisRecording->
->            recordingDateTime thisRecording
->                          ==
->                   recordingName)
->         recordings of
->    Just foundRecording -> foundRecording
-
-Yes we DO want to error out rather than returning Nothing here.
-find should NEVER fail here,
-if it does we want to know about it,
-for debugging purposes.
-
->    Nothing -> error "Recordings list corupted unexpectedly.")
+> let
+>  (Just recording) =
+>   find
+>    (\thisRecording->
+>     recordingDateTime thisRecording
+>                   ==
+>             recordingName)
+>    recordings
+> TO.update
+>   recordingMaybeObject
+>   (\_->Just recording)
+> case subjectMaybe of
+>  Just subject ->
+>   TO.update
+>    metaDataPathObject
+>    (\_->
+>     let
+>      recordingDir :: FilePath
+>      recordingDir =
+>       recordingDirectory
+>        subject
+>        recording
+>     in
+>     (Just $
+>       FP.combine
+>        recordingDir
+>        "metadata.json"))
+>  Nothing -> return ()
 > GTK.widgetSetSensitivity recordingViewPaned1 True
 > GTK.widgetSetSensitivity recordingViewPaned2 True
 > GTK.widgetSetSensitivity datFileTextView False
@@ -918,7 +963,6 @@ Otherwise I couldn't tell all the girls I'm a "rich" American.
 > datFileContentsObject
 > plotSaveEntry
 > plotViewEntry
-> metaDataObject
 > subjectDirectory
 > recordingDirectory
 > subjectMaybeObject
@@ -938,9 +982,6 @@ Otherwise I couldn't tell all the girls I'm a "rich" American.
 >   TO.update
 >    logFileContentsObject
 >    (\_->logFileContents)
->   {-TO.update
->    metaDataObject
->    (\_->recordingMetaData recording)-}
 >  Nothing -> clearEntries
 > where
 >  clearEntries = do
@@ -1031,41 +1072,112 @@ Even then!
 And if I do all that by myself,
 I'll still be a virgin too!
 
->stockRecordingMetaData
-> stockFeildsToJSObject
-> recordingMetaDataFeilds
->  =
-> stockFeildsToJSObject recordingMetaDataFeilds
+>metaDataFormMVar
+> recordingMetaDataFields
+> recordingViewPaned2
+>  << postGUISync $ do
+> initialForm <- jsInputNew
+>  recordingMetaDataFields
+>  (\_->return ())
+> GTK.panedAdd1 recordingViewPaned2 initialForm
+> MV.newMVar initialForm
 
->data MetaData = MetaData
-> {metaDataContents :: [(String,JS.JSValue)]
-> ,metaDataPath :: Maybe FilePath}
+>writeMetaDataToDisk ::
+> TO.ThreadObject String a ->
+> FilePath ->
+> Result [(String,JS.JSValue)] ->
+> IO ()
+>writeMetaDataToDisk
+> errorObject
+>  !
+> filePath
+> metaDataR
+>  = do
+> case metaDataR of
+>  JS.Ok metaData -> do
+>   let metaDataText = encode metaData
+>   writeFile filePath metaDataText
+>  JS.Error err ->
+>   TO.update
+>    errorObject
+>    (\_->err)
 
-This type is a comment rather than code,
-because the type declaration mechanism in haskarrow
-is currently rather cumbersome.
-
->data PathUpdatedSignal a =
->   PathUpdated    a
-> | PathNotUpdated a
-
-metaDataObject :: ThreadObject MetaData (PathUpdatedSignal a)
-
->metaDataObject
-> drawMetaData
-> recordingMetaDataFeilds
+>metaDataPathObject ::
+> (Maybe FilePath -> Maybe a -> IO()) ->
+> IO (TO.ThreadObject (Maybe FilePath) a)
+>metaDataPathObject
+> updateMetaDataForm
 >  << do
 > to <- TO.threadObject
-> TO.objectInit
+> objectInit
 >  to
->  (TO.SyncWithoutSignal
->    (TO.SeedInitially $
->      MetaData
->       {metaDataContents = recordingMetaDataFeilds
->       ,metaDataPath = Nothing}))
->  drawMetaData
->  (TO.handleExceptionStdErr "metaDataObject")
+>  (TO.SyncWithoutSignal (TO.SeedInitially Nothing))
+>  updateMetaDataForm
+>  (handleExceptionStdErr "errorMessageObject")
 > return to
+
+Just saw this today on haskell-cafe:
+http://bm380.user.srcf.net/prettyparsetree.cgi
+
+Cool!
+
+---
+
+When I first got the meta data code to compile,
+it ran, and just worked!
+I was in disbeleif.
+I had made so many typos.
+Is it really possible to struggle so much
+with the basic grammar of the language
+and still be successful?
+Maybe I'm just dreaming :)
+
+http://degrees.bandcamp.com/track/at-least-rock-roll-wont-leave-a-hole-in-my-back
+
+>updateMetaDataForm
+> metaDataFormMVar
+> writeMetaDataToDisk
+> recordingMetaDataFields
+> recordingViewPaned2
+> errorObject
+>  !
+> filePathMaybe
+> signal
+>  =
+> case filePathMaybe of
+>  Just filePath -> do
+>   exists <- SD.doesFileExist filePath
+>   let
+>    loadMetaData = do
+>     metaDataText <- readFile filePath
+>     let metaDataR = decode metaDataText :: Result [(String,JSValue)]
+>     case metaDataR of
+>      Ok metaData' -> do
+>       let
+>        metaDataFieldsFilled :: [(String,String,JSValue)]
+>        metaDataFieldsFilled =
+>         zipWith
+>          (\(k,v) (_,l,_)->(k,l,v))
+>          metaData'
+>          recordingMetaDataFields
+>       return metaDataFieldsFilled
+>      Error err -> do
+>       error err
+>   metaData <- case exists of
+>    True ->
+>     loadMetaData
+>    False ->
+>     return recordingMetaDataFields
+>   oldForm <- MV.takeMVar metaDataFormMVar
+>   postGUISync $ do
+>    GTK.widgetDestroy oldForm
+>    newForm <- jsInputNew
+>     metaData
+>     (writeMetaDataToDisk filePath)
+>    GTK.panedAdd1 recordingViewPaned2 newForm
+>    GTK.widgetShowAll recordingViewPaned2
+>    MV.putMVar metaDataFormMVar newForm
+>  Nothing -> return ()
 
 Here in the hackerspace it's fine,
 warm,
@@ -1095,67 +1207,13 @@ life is short.
 And the only way to get anything out of it,
 is to shorten it even farther!
 
-When understanding how this code fits together,
-one must realize a certain limitation on the "globalness" of the mutable objects.
-
-Objects may be globally accessable,
-and globally mutable,
-but that does NOT mean there is chaos!
-
-Only certain threads/parts of the program actually DO mutate a given object.
-
-Once the visual editor is finished for haskarrow,
-this will be very clear.
-
-But for now,
-take this promise:
-
-The metaDataObject is ONLY ever updated by:
-The metaDataPathObject
-And the metaDataForm on change callback.
-
-When the metaDataPathObject is updated,
-it loads the meta data from disk and updates the
-metaDataObject.
-
-It sends a signal to drawMetaData which tells it not
-to save that meta data straight back to the disk ;)
-but rather to display it to the metaDataForm.
-
-My my, when I write comments like this
-I always feel such empathy for the reader.
-
-"Sends a signal"
-
-what does that mean to you?
-If I were reading this,
-I would think that it meant that some event got triggered or something.
-It doesn't mean that at all,
-however.
-
-Sends a signal means,
-that when some bit of code changes the value of an object
-by using update they can instead call updateWithSignal.
-This passes an extra value to the syncOnGet method(drawMetaData)
-this bit of extra data is called a signal
-within the threadObject framework.
-
->drawMetaData
-> metaDataFormObject
-> recordingViewPaned2
-> onMetaDataChanged
->  !
-> metaData
-> signal
->  = do
-> case signal of
->  PathUpdated _ -> do
->   TO.updateIO
->    metaDataFormObject
->    (\metaDataForm -> GTK.postGUISync $ do
->      GTK.destroyWidget metaDataForm
->      jsInputNew metaData onMetaDataChanged)
->   
+>recordingViewPaned1
+> recordingViewPaned
+>  << GTK.postGUISync $ do
+> p <- GTK.vPanedNew
+> GTK.panedAdd2 recordingViewPaned p
+> GTK.widgetSetSensitivity p False
+> return p
 
 For whatever reason,
 I find myself repeatedly drawn
@@ -1172,14 +1230,6 @@ Perhaps there is something familiar and reasuring about such nhihlism.
 And how the baby monkey hugs himself when he is thrown out into the world alone.
 Just as I do,
 for I too am alone.
-
->recordingViewPaned1
-> recordingViewPaned
->  << GTK.postGUISync $ do
-> p <- GTK.vPanedNew
-> GTK.panedAdd2 recordingViewPaned p
-> GTK.widgetSetSensitivity p False
-> return p
 
 >recordingViewPaned2
 > recordingViewPaned1
@@ -1277,9 +1327,8 @@ Goodnight!
 > subjectName
 > recordCommand
 > subjectsDirectory
-> stockRecordingMetaData
 > mainWindow
-> recordingMetaDataFeilds
+> recordingMetaDataFields
 > setRecordings
 >  !
 > oldRecordings
@@ -1308,23 +1357,22 @@ Goodnight!
 >     FP.combine
 >      subjectsDirectory
 >      (subjectName $ subjectInfoAnonymized $ subjectInfo subject)
->    recordingDirectory =
+>    recordingDir =
 >     FP.combine
 >      subjectDirectory
 >      timeString
 >    recordingPath =
 >     FP.combine
->      recordingDirectory
+>      recordingDir
 >      "log"
 
 Ahh, the burning irony in that createDirectory can throw a "directory does not exist" error :D
 
->   SD.createDirectory recordingDirectory
+>   SD.createDirectory recordingDir
 >   let
 >    newRecording =
 >     Recording
->      {recordingDateTime = timeString
->      ,recordingMetaData = stockRecordingMetaData}
+>      {recordingDateTime = timeString}
 >   (_,_,_,pHandle) <-
 >    createProcess (shell (recordCommand  recordingPath))
 >   waitForProcess pHandle
@@ -1686,7 +1734,6 @@ I just carry my laptop with me.
 >data UpdateSubjects = Don'tUpdateSubjects
 
 >onSubjectSelected
-> subjectsObject
 > subjectMaybeObject
 > subjectInfos
 > subjectName
@@ -1695,6 +1742,7 @@ I just carry my laptop with me.
 > recordingViewPaned1
 > recordingViewPaned2
 >  !
+> subjects
 > subject
 
 FOOOOD!
@@ -1709,22 +1757,8 @@ and it burns and itches within me
 the hunger and desire to eat!
 
 >  = do
-> subjects <- TO.getObjectValue subjectsObject
 
-On Friday I was rather drunk,
-I don't drink,
-I mean,
-I've had 4 beers in the last 12 months.
-All of them were last friday.
-I kissed a girl,
-I remember my mind racing,
-Urgent, anxious, thoughts.
-All fealings displaced by the numbness of alcohol.
-And yet an intense boredom of it,
-the tong moving in and out,
-and a constant questioning of technique.
-
-But now I feel hungry,
+I feel hungry,
 and as I listen to
 http://incompetech.com/music/royalty-free/index.html?collection=012
 "blown away",
@@ -1828,10 +1862,12 @@ spraying all the mutable state.
 
 >drawSelectedSubject
 > recordingsObject
+> subjectInfoObject
+> subjectInfoFields
 >  !
 > subjectMaybe
 > signal
->  =
+>  = do
 > TO.updateWithSignal
 >  recordingsObject
 >  (\_->
@@ -1839,6 +1875,12 @@ spraying all the mutable state.
 >    Just subject -> subjectRecordings subject
 >    Nothing -> [])
 >  Don'tUpdateSubjects
+> TO.update
+>  subjectInfoObject
+>  (\_->
+>   case subjectMaybe of
+>    Just subject -> subjectInfo subject
+>    Nothing -> map (\(k,_,v)->(k,v)) subjectInfoFields)
 
 >initialSubjects
 > initialSubjectInfos
@@ -1847,7 +1889,6 @@ spraying all the mutable state.
 > subjectName
 > trueDirectoryContents
 > exitMethod
-> stockRecordingMetaData
 >  << do
 > recordingss <- mapM loadRecordings initialSubjectInfos
 > return $ zipWith
@@ -1866,32 +1907,9 @@ spraying all the mutable state.
 >    trueDirectoryContents (subjectDirectory subjectInfo)
 >   mapM
 >    (\recordingTime ->do
->      let
->       metaDataPath =
->        FP.combine
->         (subjectDirectory subjectInfo)
->         recordingTime
-
->      exists <- SD.doesFileExist metaDataPath
->      metaData <- case exists of
->       True ->
->        loadMetaData metaDataPath
->       False ->
->        return stockRecordingMetaData
 >      return $ Recording
->       {recordingDateTime=recordingTime
->       ,recordingMetaData=metaData})
+>       {recordingDateTime=recordingTime})
 >    recordingTimes
->  loadMetaData metaDataDirectory = do
->   metaDataText <- readFile $ FP.combine metaDataDirectory "metadata.json"
->   let metaDataR = decode metaDataText
->   case metaDataR of
->    Ok metaData' -> return metaData'
->    Error err -> do
->     exitMethod
->      (Exit.ExitFailure 1)
->      (Just err)
->     return $ error "We don't get here."
 
 >initialSubjectInfos
 > studyFile
@@ -1927,6 +1945,7 @@ There seems to be no way to make this code work :(
 
 >drawSubjects
 > mainWindowInitializedTVar
+> onSubjectSelected
 > subjectsUpdaterMVar
 > subjectName
 > studyFilePath
@@ -1944,7 +1963,7 @@ There seems to be no way to make this code work :(
 >  (SLV.UpdateTreeView subjectsUpdater) <-
 >   MV.takeMVar subjectsUpdaterMVar
 >  let subjectNames = map (subjectName.subjectInfo) subjects
->  newUpdater <- subjectsUpdater subjectNames
+>  newUpdater <- subjectsUpdater subjectNames (onSubjectSelected subjects)
 >  MV.putMVar subjectsUpdaterMVar newUpdater
 > let
 >  anonSubjectInfos :: [SubjectInfo]
@@ -1957,6 +1976,100 @@ There seems to be no way to make this code work :(
 > writeFile
 >  anonStudyFilePath
 >  $ JS.encode anonSubjectInfos
+
+>subjectInfoObject
+> drawSubjectInfo
+> subjectInfoFields
+>  << do
+> to <- TO.threadObject
+> objectInit
+>  to
+>  (TO.SyncWithoutSignal
+>    (TO.SeedInitially $
+>      map
+>       (\(k,_,v)->(k,v))
+>       subjectInfoFields))
+>  drawSubjectInfo
+>  (handleExceptionStdErr "subjectInfoObject")
+> return to
+
+I'm afraid,
+that if I write to many comments into the margins
+it will become clear how bad I am at programming.
+Just HOW LONG it takes me,
+just to write a simple GUI.
+
+Perhaps 100 hours?
+More?
+
+I also realise
+that there are several design flaws built into this program.
+For example,
+I make no attempt to deal with
+changes in the subject info fields
+or in the recording meta data fields.
+
+I should have made it so that the key's
+and the field description strings were one in the same.
+There is no reason to have two such values.
+
+After the study is done,
+I will go back and fix these issues,
+somehow.
+
+>subjectInfoFormMVar << newEmptyMVar
+
+>drawSubjectInfo
+> syncSubjectInfo
+> subjectInfoFormMVar
+> subjectInfoFields
+> subjectInfoVBox
+> errorObject
+>  !
+> thisSubjectInfo
+> signal
+>  = postGUISync $ do
+> subjectInfoFormMaybe <- MV.tryTakeMVar subjectInfoFormMVar
+> case subjectInfoFormMaybe of
+>  Just subjectInfoForm -> do
+>   GTK.widgetDestroy subjectInfoForm
+>  Nothing -> return ()
+> newForm<-jsInputNew
+>  (zipWith
+>  (\(k,v) (_,l,_)->(k,l,v))
+>   thisSubjectInfo
+>   subjectInfoFields)
+>  syncSubjectInfo
+> GTK.boxPackEnd subjectInfoVBox newForm GTK.PackNatural 0
+> GTK.widgetShowAll subjectInfoVBox
+> MV.putMVar subjectInfoFormMVar newForm
+
+>syncSubjectInfo
+> subjectsObject
+> errorObject
+>  !
+> newSubjectInfoR
+>  = do
+> case newSubjectInfoR of
+>  JS.Ok newSubjectInfo -> do
+>   TO.update
+>    subjectsObject
+>    (\subjects->
+>      map
+>       (replaceSubjectInfo newSubjectInfo)
+>       subjects)
+>   where
+>    replaceSubjectInfo subjectInfoNew subjectOld =
+>     let subjectInfoOld = subjectInfo subjectOld in
+>     subjectOld{
+>      subjectInfo=
+>       case (lookup "name" subjectInfoNew) == (lookup "name" subjectInfoOld) of
+>        True  -> subjectInfoNew
+>        False -> subjectInfoOld}
+>  JS.Error err ->
+>   TO.update
+>    errorObject
+>    (\_->err)
 
 >recordingsObject
 >  << do
@@ -1977,6 +2090,7 @@ There seems to be no way to make this code work :(
 
 >drawRecordings
 > recordingsListUpdaterMVar
+> onRecordingSelected
 > subjectsObject
 > subjectMaybeObject
 > subjectName
@@ -1990,7 +2104,7 @@ There seems to be no way to make this code work :(
 >   (UpdateTreeView updater) <-
 >    MV.takeMVar recordingsListUpdaterMVar
 >   newUpdater <-
->    updater $ map recordingDateTime recordings
+>    updater (map recordingDateTime recordings) (onRecordingSelected (Just subject) recordings)
 >   MV.putMVar recordingsListUpdaterMVar newUpdater
 >  Nothing -> return (error "Something in the subject selecting process badly broke!")
 
