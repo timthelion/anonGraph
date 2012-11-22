@@ -31,7 +31,7 @@ of the GNU General Public License along with this program.
 If not,
 see <http://www.gnu.org/licenses/>.
 
--->module AnonGraph where
+>module AnonGraph where
 
 >import Text.JSON as JS
 >import Control.Concurrent as CC
@@ -102,16 +102,16 @@ see <http://www.gnu.org/licenses/>.
 
 Parametric values:
 
->recordCommand :: (FilePath -> String)
->recordCommand =?= (\filePathOfLog->"gnome-terminal -e 'vim "++filePathOfLog ++ "'")
+>recordComand :: (FilePath -> String)
+>recordComand =?= (\filePathOfLog->"terminal -e 'vim "++filePathOfLog ++ "'")
 
 >data Filter = Filter
 > {filterName :: String
 > ,logToDat :: String -> String
 > ,datFileSuffix :: String
-> ,viewPlotCommand :: FilePath {-Path of dat file-} ->  String
+> ,viewPlotComand :: FilePath {-Path of dat file-} ->  String
 > ,plotFileSuffix :: String
-> ,savePlotCommand :: FilePath {-Path of dat file-}-> FilePath {-Path of plot file-}-> String}
+> ,savePlotComand :: FilePath {-Path of dat file-}-> FilePath {-Path of plot file-}-> String}
 
 >filters :: [Filter]
 >filters =?=
@@ -119,28 +119,29 @@ Parametric values:
 >   {filterName="Location"
 >   ,logToDat=(\log->log++"filtered!")
 >   ,datFileSuffix=".dat"
->   ,viewPlotCommand=
+>   ,viewPlotComand=
 >     (\filePathOfDatFile->
 >       "gedit "++filePathOfDatFile)
 >   ,plotFileSuffix=".png"
->   ,savePlotCommand=
+>   ,savePlotComand=
 >     (\filePathOfDatFile plotFile->
 >        "cp "++filePathOfDatFile++
 >        " "++plotFile)}]
 
->subjectInfoFields :: [(String,String,JS.JSValue)]
+>subjectInfoFields :: [(String,JS.JSValue)]
 >subjectInfoFields =?=
-> [("name","",JS.showJSON "")
-> ,("id","",JS.showJSON (0::Int))
-> ,("string","String",JS.JSString $ JS.toJSString "")
-> ,("bool","Bool",JS.JSBool False)
-> ,("rational","Rational",JS.JSRational False (0%1))]
+> [("name",JS.showJSON "")
+> ,("id",JS.showJSON (0::Int))
+> ,("Age",JS.JSRational False (0%1))
+> ,("String",JS.JSString $ JS.toJSString "")
+> ,("Bool",JS.JSBool False)
+> ,("Rational",JS.JSRational False (0%1))]
 
->recordingMetaDataFields :: [(String,String,JS.JSValue)]
+>recordingMetaDataFields :: [(String,JS.JSValue)]
 >recordingMetaDataFields =?=
-> [("string","String",JS.JSString $ JS.toJSString "")
-> ,("bool","Bool",JS.JSBool False)
-> ,("rational","Rational",JS.JSRational False (0%1))]
+> [("String",JS.JSString $ JS.toJSString "")
+> ,("Bool",JS.JSBool False)
+> ,("Rational",JS.JSRational False (0%1))]
 
 Note that the anonymized names are used as the names for the directories which hold the subject's recordings.
 These names must be unique keys.
@@ -148,7 +149,7 @@ These names must be unique keys.
 >subjectInfoAnonymize ::
 > [(String, JSValue)] ->
 > [(String, JSValue)]
->subjectInfoAnonymize ! info =?=
+>subjectInfoAnonymize \ info =?=
 > map
 >  anonymizeEntry
 >  info
@@ -164,8 +165,8 @@ These names must be unique keys.
 >  id = fromRat id'
 >  anonymizeEntry ("name",_) =
 >   ("name",JS.showJSON $ "Subject" ++ (show id))
->  anonymizeEntry ("age", JS.JSRational _ age') =
->   ("age", JS.showJSON $
+>  anonymizeEntry ("Age", JS.JSRational _ age') =
+>   ("Age", JS.showJSON $
 >    fromMaybe
 >     (error "IMPOSSIBLE!")
 >     $ find
@@ -179,7 +180,7 @@ These names must be unique keys.
 
 >subjectInfosAnonymize
 > subjectInfoAnonymize
->  !
+>  \
 > infos
 >  =
 > map
@@ -212,7 +213,7 @@ a sound delightfull to the ears
 >subjectInfosAnonymized
 > viewMode
 > subjectInfosAnonymize
->  !
+>  \
 > infos =
 > case viewMode of
 >  AnonReadOnly -> infos
@@ -221,7 +222,7 @@ a sound delightfull to the ears
 >subjectInfoAnonymized
 > viewMode
 > subjectInfoAnonymize
->  !
+>  \
 > info =
 > case viewMode of
 >  AnonReadOnly -> info
@@ -229,7 +230,7 @@ a sound delightfull to the ears
 
 >subjectInfosAnonymizedAsJSObjects
 > subjectInfosAnonymized
->  !
+>  \
 > infos
 >  =
 > map
@@ -244,21 +245,23 @@ Why can't I use where in lambdas :(
 I want a refund!
   (\info-> obj where (JSObject obj) = makeObj info)
 
-
->stockFieldsToJSObject
->  !
-> feilds
+>fillOutFields
+>  \
+> fieldsToBeFilled
+> stockFields
 >  =
-> object
-> where
->  (JSObject object) =
->   JS.makeObj $
->    map
->     (\(key,_,value)->(key,value))
->     feilds
+> fieldsToBeFilled ++
+> (filter
+>  (\(k,_)->
+>    case find
+>     (\(k1,_)->k==k1)
+>     fieldsToBeFilled of
+>    Just _  -> False
+>    Nothing -> True)
+>  stockFields)
 
-
-When the researcher begins the program she/he will be prompted to either start a new study
+When the researcher begins the program
+she/he will be prompted to either start a new study
 (create a new "project" directory)
 or open an existing one.
 
@@ -268,12 +271,18 @@ We will need a gtk thread to display this dialog.
 
 >data OpenOrStartStudy = OpenStudy | StartStudy
 
-The user will be promted IFF the user has not passed their study file as an argument that is.
+The user will be promted
+IFF the user has not passed their study file as an argument that is.
 
 >systemArgs :: IO [String]
 >systemArgs << SE.getArgs
 
->openOrStartStudy :: IO OpenOrStartStudy -> Maybe FilePath -> (Exit.ExitCode -> Maybe String -> IO ()) -> IO OpenOrStartStudy
+>openOrStartStudy ::
+> IO OpenOrStartStudy ->
+> Maybe FilePath ->
+> (Exit.ExitCode -> Maybe String -> IO ()) ->
+> IO OpenOrStartStudy
+
 >openOrStartStudy
 > promptUserToOpenOrStartAStudy
 > studyFilePathFromSystemArgsMaybe
@@ -285,7 +294,8 @@ The user will be promted IFF the user has not passed their study file as an argu
 >   case exists of
 >    True  -> return OpenStudy
 >    False -> do
->     putStrLn "This study file does not exist.  Do you want to start a new study with this name? [y/n]"
+>     putStrLn "This study file does not exist."
+>     putStrLn "Do you want to start a new study with this name? [y/n]"
 >     answer <- getChar
 >     case answer of
 >      'y' -> return StartStudy
@@ -357,7 +367,9 @@ but never reply to anything.
 >          CM.forever CC.threadDelay 100000 >>
 >          (return $ error "unreachable code"))::BlockedIndefinitelyOnMVar -> IO OpenOrStartStudy)
 
->studyFilePathFromSystemArgsMaybe :: [String] -> Maybe FilePath
+>studyFilePathFromSystemArgsMaybe ::
+> [String] ->
+> Maybe FilePath
 >studyFilePathFromSystemArgsMaybe
 > systemArgs
 >  =
@@ -383,11 +395,17 @@ but never reply to anything.
 >    Nothing -> do
 >     exitMethod
 >      (Exit.ExitFailure 1)
->      (Just "Something happened and we couldn't open/create that file :(")
+>      (Just "Something happened and we couldn't open/create that file :(. Probable cause: You cancled the file open dialog.")
 >     return $ error "unreachable point in code")
 
->getFilePathFromDialog :: GTK.FileChooserAction -> IO (Maybe FilePath)
->getFilePathFromDialog ! myFileChooserAction = GTK.postGUISync $ do
+>getFilePathFromDialog ::
+> GTK.FileChooserAction ->
+> IO (Maybe FilePath)
+
+>getFilePathFromDialog
+>  \
+> myFileChooserAction
+>  = GTK.postGUISync $ do
 > fileChooserDialog <-
 >  GTK.fileChooserDialogNew
 >   (Just
@@ -430,15 +448,17 @@ but never reply to anything.
 I know I have no reason to find this weird at all.
 Afterall,
 they've been married for years!
-But every time I see the little "in a relationship" heart on my grandmothers facebook page
-I'm taken a back a little.
+But every time I see the little "in a relationship" heart
+on my grandmothers facebook page
+I'm taken aback just a little.
 I guess it's just the stark contrast,
 between what that icon means for her,
 and what it means for me...
 
 >data ViewMode = AnonReadOnly | ReadWrite
 
-I've decided to start blogging inbetween the function declarations in my literate files.
+I've decided to start blogging
+inbetween the function declarations in my literate files.
 It's in version controll,
 and published on the internet.
 Who says this isn't a better way to share the worries I have in my life.
@@ -457,13 +477,20 @@ perhaps that will be all for the better in the end.
 
 >initialErrorMessage viewMode =
 > case viewMode of
->  AnonReadOnly -> "Read only browsing mode with anonymized data."
->  ReadWrite -> "Read write mode."
+>  AnonReadOnly ->
+>   "Read only browsing mode with anonymized data."
+>  ReadWrite ->
+>   "Read write mode."
 
-Man this source code is so long that the hardest thing about writing this project is navigation
-that will be changed once the haskarrow graphical front end is written :)
+Man this source code is so long
+that the hardest thing about writing this project
+is navigation.
+That will be changed
+once the haskarrow graphical front end is written :)
 and the haskarrow module system improved
 ect.
+
+vim's :sp and :vs help
 
 >newFileHeirarchy
 > studyFilePath
@@ -503,7 +530,7 @@ It will just take work.
 
 >isDirectoryEmpty
 > trueDirectoryContents
->  !
+>  \
 > directory = do
 > realContents <- trueDirectoryContents directory
 > return $
@@ -514,7 +541,7 @@ It will just take work.
 ↓ TODO Fixme to work on Windows! ↓
 
 >trueDirectoryContents
->  !
+>  \
 > directory
 >  = do
 > contents <-  getDirectoryContents directory
@@ -534,17 +561,23 @@ It will just take work.
 
 Whenever one does something good,
 like attempt to make an open source braille display,
-one puts themselves in the awkward situation of framing goodness in terms of humaninity.
+one puts themselves in the awkward situation
+of framing goodness in terms of humaninity.
 I do this to help humanity,
 but is humanity itself good?
 
 That is a question I cannot answer,
 and it troubles me imensely :(
 
+Perhaps,
+by helping humanity,
+I am helping evil.
+
 >studyName studyFilePath =
 > dropExtension $ snd $ splitFileName studyFilePath
 
-My ability to waste countless hours reading random arguments on the internet is unlimited :/
+My ability to waste countless hours
+reading random arguments on the internet is unlimited :/
 
 I don't even respond.
 Just read and read and read.
@@ -579,21 +612,27 @@ Just read and read and read.
 > subjectsDirectory
 > subjectInfoAnonymized
 > subjectName
->  !
+>  \
 > subject
 >  =
 > FP.combine
 >  subjectsDirectory
->  (subjectName $ subjectInfoAnonymized $ subjectInfo subject)
+>  anonymizedSubjectName
+> where
+>  anonymizedSubjectName =
+>   subjectName
+>    $ subjectInfoAnonymized
+>       $ subjectInfo subject
 
 >recordingDirectory ::
 > (Subject -> FilePath) ->
 > Subject ->
 > Recording ->
 > FilePath
+
 >recordingDirectory
 > subjectDirectory
->  !
+>  \
 > subject
 > recording
 >   =
@@ -604,10 +643,14 @@ Just read and read and read.
 >  subjectDir
 >  $ recordingDateTime recording
 
+The main window depends on studyFilePath
+because it should not show up
+before the correct file is selected.
 
-The main window depends on studyFilePath because it should not show up before the correct file is selected.
-
->mainWindow studyFilePath exitMethod << GTK.postGUISync $ do
+>mainWindow
+> studyFilePath
+> exitMethod
+>  << GTK.postGUISync $ do
 > w <- GTK.windowNew
 > _ <- w `on` objectDestroy $ do
 >  exitMethod Exit.ExitSuccess Nothing
@@ -635,26 +678,34 @@ that once your code compiles and runs,
 it's almost done,
 is entirely too unsettling.
 
-Coding is a bit like slots,
+Coding is a bit like playing slots,
 you get that kind of numb hopefull feeling
 as you pull down the build lever
-at least untill your brain goes numb
+at least untill your brain goes completely numb
 at which you keep on building the damn thing anyways
 even though you don't know why.
 
->errorAndMainPaned
+>errorAndMainBox
 > mainWindow
 >  << GTK.postGUISync $ do
-> vp <- GTK.vPanedNew
-> GTK.containerAdd mainWindow vp
-> return vp
+> b <- GTK.vBoxNew False 0
+> GTK.containerAdd mainWindow b
+> return b
 
->errorLabel
-> errorAndMainPaned
+>errorTextView
+> errorAndMainBox
+> errorTextBuffer
 >  << GTK.postGUISync $ do
-> l <- labelNew Nothing
-> GTK.panedAdd1 errorAndMainPaned l
-> return l
+> tv <- textViewNewWithBuffer errorTextBuffer
+> GTK.boxPackEnd errorAndMainBox tv GTK.PackNatural 0
+> set tv [textViewEditable := False
+>        ,textViewWrapMode := WrapWordChar]
+> return tv
+
+>errorTextBuffer
+> mainWindow
+>  << GTK.postGUISync $ do
+> GTK.textBufferNew Nothing
 
 >errorObject
 > drawErrorMessage
@@ -663,25 +714,26 @@ even though you don't know why.
 > to <- TO.threadObject
 > objectInit
 >  to
->  (TO.SyncWithoutSignal (TO.SeedInitially initialErrorMessage))
+>  (TO.SyncWithoutSignal
+>   (TO.SeedInitially initialErrorMessage))
 >  drawErrorMessage
->  (handleExceptionStdErr "errorMessageObject")
+>  (handleExceptionStdErr "errorObject")
 > return to
 
 >drawErrorMessage
-> errorLabel
->  !
+> errorTextBuffer
+>  \
 > errorMessage
 > signal
 >  =
 > GTK.postGUIAsync $ do
-> set errorLabel [labelText := errorMessage]
+> set errorTextBuffer [textBufferText := errorMessage]
 
 >mainPaned
-> errorAndMainPaned
+> errorAndMainBox
 >  << GTK.postGUISync $ do
 > p <- GTK.hPanedNew
-> GTK.panedAdd2 errorAndMainPaned p
+> GTK.boxPackStart errorAndMainBox p GTK.PackGrow 0
 > return p
 
 >subjectsVBoxTop
@@ -728,7 +780,6 @@ even though you don't know why.
 >     return True
 >   _ -> return False
 
-
 >addSubjectButton
 > mainWindow
 > addSubject
@@ -740,12 +791,15 @@ even though you don't know why.
 
 Today, the energy of life flows through me :)
 
+These comments are entirely non chronoligical,
+and they were not all writen on the same day
+or even within the course of a week.
+
 >addSubject
 > addSubjectEntry
 > subjectsObject
 > subjectInfoFields
 > subjectInfoAnonymized
-> stockFieldsToJSObject
 > subjectsDirectory
 > subjectName
 >  = do
@@ -765,7 +819,7 @@ Today, the energy of life flows through me :)
 >     (subjectName $ subjectInfoAnonymized newSubject'sInfo)
 >   newSubject'sInfo =
 >    map
->     (\(k,_,v)->
+>     (\(k,v)->
 >      case k of
 >       "name"->(k,JS.showJSON newSubjectName)
 >       "id"->(k,JS.showJSON (length oldSubjects))
@@ -842,35 +896,26 @@ http://graciellita.bandcamp.com/
 But no honestly,
 the song is great to! :D
 
->{-onRecordingSelected ::
-> TO.ThreadObject (Maybe Recording) a ->
-> TO.ThreadObject (Maybe Subject) b ->
-> GTK.VPaned ->
-> GTK.VPaned ->
-> GTK.TextView ->
-> GTK.HBox ->
-> GTK.HBox ->
-> TO.ThreadObject (Maybe FilePath) c ->
-> FilePath ->
-> (Maybe Subject) ->
-> [Recording] ->
-> String ->
-> IO ()-}
-
 >onRecordingSelected
 > recordingMaybeObject
 > subjectMaybeObject
 > recordingViewPaned1
 > recordingViewPaned2
 > datFileTextView
-> plotViewCommandHBox
-> plotSaveCommandHBox
+> plotViewComandHBox
+> plotSaveComandHBox
 > metaDataPathObject
 > recordingDirectory
->  !
+>  \
 > subjectMaybe
 > recordings
 > recordingName
+
+OMG, what is this function's type???
+Gotta
+(don't worry, will)
+fix this problem with haskarrow!
+
 >  = do
 > let
 >  (Just recording) =
@@ -903,8 +948,8 @@ the song is great to! :D
 > GTK.widgetSetSensitivity recordingViewPaned1 True
 > GTK.widgetSetSensitivity recordingViewPaned2 True
 > GTK.widgetSetSensitivity datFileTextView False
-> GTK.widgetSetSensitivity plotViewCommandHBox False
-> GTK.widgetSetSensitivity plotSaveCommandHBox False
+> GTK.widgetSetSensitivity plotViewComandHBox False
+> GTK.widgetSetSensitivity plotSaveComandHBox False
 
 Sadness,
 has got to be one of the most pleasant fealings.
@@ -920,7 +965,7 @@ over and over,
 
 sit all alone,
 and look how the street lights,
-paint geometric shadows through the windows,
+paint geometric shadows through the windows onto the pale walls
 and the meloncholy fog
 blankets Prague
 
@@ -940,6 +985,7 @@ http://www.jamendo.com/en/artist/359047/kruai
 
 >recordingMaybeObjectInitialized
 > recordingMaybeObject
+> postError
 > drawRecording
 >  << do
 > TO.objectInit
@@ -948,7 +994,7 @@ http://www.jamendo.com/en/artist/359047/kruai
 >    (TO.SeedInitially $
 >      Nothing))
 >  drawRecording
->  (TO.handleExceptionStdErr "recordingMaybeObject")
+>  postError
 
 It's a good thing that wealth is measured in
 debt,
@@ -969,7 +1015,7 @@ Otherwise I couldn't tell all the girls I'm a "rich" American.
 > recordingDirectory
 > subjectMaybeObject
 > subjectName
->  !
+>  \
 > recordingMaybe
 > signal
 >  = do
@@ -1009,11 +1055,10 @@ I know,
 my comments are totally depressed,
 but I hope my code will be good.
 
-Again,
-you have to realize,
+And you have to realize,
 in a way I rellish unhappyness.
 I could be out snoging a girl right now,
-though I recently found out that's quite borring.
+though I recently found out that can be quite borring.
 I find being lonely and unhappy makes me feel morally superior.
 And being able to turn up my nose at people,
 is half the point of life.
@@ -1021,8 +1066,9 @@ is half the point of life.
 It's important to remember,
 that the unplesantness of coding with imature libraries,
 in imature environments,
-that post unscrutable build time error messages,
-or when programs just crash/freeze, with no message at all.
+that post inscrutable build time error messages,
+or when programs just crash/freeze,
+with no message at all.
 
 Coding like this,
 is the epitamy of hope.
@@ -1043,7 +1089,8 @@ So much hope.
 Like the little dog
 sitting under the table.
 Who bangs his head
-every time he looks up to see if any food might be falling from the "sky".
+every time he looks up
+to see if any food might be falling from the "sky".
 
 Someday it will be easy!
 
@@ -1060,8 +1107,11 @@ and I've written a working speech recognition system for linux,
 and an art generator
 and a movie editor
 and a better wrapper around the jack2d system making sound production on linux user friendly
-even when xmonad is running on wayland and supports zooming and 3D rotations in it's layouts
-even when text zooming works without overlaps in firefox and or chrome,
+
+even when xmonad is running on wayland
+and supports zooming and 3D rotations in it's layouts
+even when text zooming works
+without overlaps in firefox and or chrome,
 and pdfs can be zoomed with wrapping of the text.
 
 Even then,
@@ -1091,7 +1141,7 @@ I'll still be a virgin too!
 > IO ()
 >writeMetaDataToDisk
 > errorObject
->  !
+>  \
 > filePath
 > metaDataR
 >  = do
@@ -1137,12 +1187,13 @@ Maybe I'm just dreaming :)
 http://degrees.bandcamp.com/track/at-least-rock-roll-wont-leave-a-hole-in-my-back
 
 >updateMetaDataForm
+> fillOutFields
+> recordingMetaDataFields
 > metaDataFormMVar
 > writeMetaDataToDisk
-> recordingMetaDataFields
 > recordingViewPaned2
 > errorObject
->  !
+>  \
 > filePathMaybe
 > signal
 >  =
@@ -1154,15 +1205,11 @@ http://degrees.bandcamp.com/track/at-least-rock-roll-wont-leave-a-hole-in-my-bac
 >     metaDataText <- readFile filePath
 >     let metaDataR = decode metaDataText :: Result [(String,JSValue)]
 >     case metaDataR of
->      Ok metaData' -> do
->       let
->        metaDataFieldsFilled :: [(String,String,JSValue)]
->        metaDataFieldsFilled =
->         zipWith
->          (\(k,v) (_,l,_)->(k,l,v))
->          metaData'
->          recordingMetaDataFields
->       return metaDataFieldsFilled
+>      Ok metaData' ->
+>       return $
+>        fillOutFields
+>         metaData'
+>         recordingMetaDataFields
 >      Error err -> do
 >       error err
 >   metaData <- case exists of
@@ -1227,6 +1274,8 @@ https://www.youtube.com/watch?v=hsA5Sec6dAI
 https://www.youtube.com/watch?v=e5I6d_vq-Cc
 
 https://www.youtube.com/watch?v=OrNBEhzjg8I
+"that baby loved it's mother"
+"a cloth mother."
 
 Perhaps there is something familiar and reasuring about such nhihlism.
 And how the baby monkey hugs himself when he is thrown out into the world alone.
@@ -1255,9 +1304,6 @@ Why no derivs :(
 
 Totally defeats the purpose of CC licencing.
 
-Almost like me refusing to relicence from GPL to BSD,
-except eviler...
-
 The whole point of free society is to be inspired and derive,
 remix, build, create.
 That's what makes it so different from consumer society.
@@ -1281,30 +1327,31 @@ It's so tragic :(
 >logViewVBox
 > recordingViewPaned1
 > logFileTextView
-> recordCommandHBox
+> recordComandHBox
 >  << GTK.postGUISync $ do
 > vb <- vBoxNew False 0
 > GTK.boxPackEnd vb logFileTextView GTK.PackGrow 0
-> GTK.boxPackEnd vb recordCommandHBox GTK.PackNatural 0
+> GTK.boxPackEnd vb recordComandHBox GTK.PackNatural 0
 > GTK.panedAdd1 recordingViewPaned1 vb
 > return vb
 
->recordCommandHBox
+>recordComandHBox
 > recordButton
-> recordCommandLabel
+> recordComandLabel
 >  << GTK.postGUISync $ do
 > hb <- hBoxNew False 0
 > GTK.boxPackEnd hb recordButton GTK.PackNatural 0
-> GTK.boxPackEnd hb recordCommandLabel GTK.PackGrow 0
+> GTK.boxPackEnd hb recordComandLabel GTK.PackGrow 0
 > return hb
 
->recordCommandLabel
+>recordComandLabel
 > mainWindow
-> recordCommand
+> recordComand
 >  << GTK.postGUISync $ do
-> labelNew $ Just $ recordCommand "<log-file-path>"
+> labelNew $ Just $ recordComand "<log-file-path>"
 
-1:30 am on a school night and I'm reading gwern's essay http://www.gwern.net/Terrorism%20is%20not%20Effective !
+1:30 am on a school night and I'm reading gwern's essay
+http://www.gwern.net/Terrorism%20is%20not%20Effective !
 Goodnight!
 
 >recordButton
@@ -1324,15 +1371,16 @@ Goodnight!
 >  addRecording
 
 >addRecording
+> errorObject
 > subjectMaybeObject
 > subjectInfoAnonymized
 > subjectName
-> recordCommand
+> recordComand
 > subjectsDirectory
 > mainWindow
 > recordingMetaDataFields
 > setRecordings
->  !
+>  \
 > oldRecordings
 >  = do
 > subjectMaybe <- TO.getObjectValue subjectMaybeObject
@@ -1355,10 +1403,12 @@ Goodnight!
 >     (show hour) ++ ":" ++
 >     (show min) ++ ":" ++
 >     (show sec)
->    subjectDirectory =
+>    subjectDirectory' =
 >     FP.combine
 >      subjectsDirectory
 >      (subjectName $ subjectInfoAnonymized $ subjectInfo subject)
+>   subjectDirectory <- canonicalizePath subjectDirectory'
+>   let
 >    recordingDir =
 >     FP.combine
 >      subjectDirectory
@@ -1368,7 +1418,8 @@ Goodnight!
 >      recordingDir
 >      "log"
 
-Ahh, the burning irony in that createDirectory can throw a "directory does not exist" error :D
+Ahh, the burning irony in that createDirectory
+can throw a "directory does not exist" error :D
 
 >   SD.createDirectory recordingDir
 >   let
@@ -1376,22 +1427,32 @@ Ahh, the burning irony in that createDirectory can throw a "directory does not e
 >     Recording
 >      {recordingDateTime = timeString}
 >   (_,_,_,pHandle) <-
->    createProcess (shell (recordCommand  recordingPath))
+>    createProcess (shell (recordComand  recordingPath))
 >   waitForProcess pHandle
->   GTK.postGUISync $ do
->    GTK.widgetSetSensitivity mainWindow True
->   let
->    newRecordings =
->     oldRecordings ++ (newRecording : [])
->   setRecordings subject newRecordings
->   return newRecordings
+>   exists <- doesFileExist recordingPath
+>   putStrLn (recordComand  recordingPath)
+>   case exists of
+>    True -> do
+>     GTK.postGUISync $ do
+>      GTK.widgetSetSensitivity mainWindow True
+>     let
+>      newRecordings =
+>       oldRecordings ++ (newRecording : [])
+>     setRecordings subject newRecordings
+>     return newRecordings
+>    False -> do
+>     SD.removeDirectory recordingDir
+>     GTK.postGUISync $ do
+>      GTK.widgetSetSensitivity mainWindow True
+>     TO.update errorObject (\_->"Warning: Record command did not create any log file. Nothing recorded.")
+>     return oldRecordings
 >  Nothing ->
 >   return oldRecordings
 
 >setRecordings
 > subjectName
 > subjectsObject
->  !
+>  \
 > subject
 > newRecordings
 >  =
@@ -1419,16 +1480,6 @@ Time for tea.
 >  << GTK.postGUISync $ do
 > GTK.textBufferNew Nothing
 
-When I think about last night,
-or was it the night before?
-The days run together,
-as it grows dark by 4pm,
-and I hardly go outside anyways.
-Anyways,
-the girl WAS gorgeous!
-It wasn't just the alchohol,
-careful examination of the facebook fotos confirms this fact. :D :D
-
 >logFileTextView
 > logFileTextBuffer
 >  << GTK.postGUISync $ do
@@ -1446,19 +1497,19 @@ careful examination of the facebook fotos confirms this fact. :D :D
 >dataFileVBox
 > filterButtonsBox
 > datFileTextView
-> plotViewCommandHBox
-> plotSaveCommandHBox
+> plotViewComandHBox
+> plotSaveComandHBox
 > recordingViewPaned2
 >  << GTK.postGUISync $ do
 > vb <- vBoxNew False 0
-> GTK.boxPackEnd vb plotSaveCommandHBox GTK.PackNatural 0
-> GTK.boxPackEnd vb plotViewCommandHBox GTK.PackNatural 0
+> GTK.boxPackEnd vb plotSaveComandHBox GTK.PackNatural 0
+> GTK.boxPackEnd vb plotViewComandHBox GTK.PackNatural 0
 > GTK.boxPackEnd vb datFileTextView GTK.PackGrow 0
 > GTK.boxPackEnd vb filterButtonsBox GTK.PackNatural 0
 > GTK.panedAdd2 recordingViewPaned2 vb
 > return vb
 
->plotViewCommandHBox
+>plotViewComandHBox
 > plotViewEntry
 > plotViewButton
 >  << GTK.postGUISync $ do
@@ -1506,7 +1557,7 @@ careful examination of the facebook fotos confirms this fact. :D :D
 Nice song :)
 http://www.jamendo.com/en/track/368189/closing-song
 
->plotSaveCommandHBox
+>plotSaveComandHBox
 > plotSaveEntry
 > plotSaveButton
 >  << GTK.postGUISync $ do
@@ -1641,7 +1692,7 @@ I just carry my laptop with me.
 > recordingDirectory
 > recordingMaybeObject
 > subjectMaybeObject
->  !
+>  \
 > contents
 > signal
 >  = GTK.postGUISync $ do
@@ -1662,7 +1713,7 @@ I just carry my laptop with me.
 
 >drawLogFileContents
 > logFileTextBuffer
->  !
+>  \
 > contents
 > signal
 >  = GTK.postGUISync $ do
@@ -1703,14 +1754,14 @@ I just carry my laptop with me.
 > recordingMaybeObject
 > subjectMaybeObject
 > datFileTextView
-> plotViewCommandHBox
-> plotSaveCommandHBox
->  !
+> plotViewComandHBox
+> plotSaveComandHBox
+>  \
 > filterName'
 >  = do
 > GTK.widgetSetSensitivity datFileTextView True
-> GTK.widgetSetSensitivity plotViewCommandHBox True
-> GTK.widgetSetSensitivity plotSaveCommandHBox True
+> GTK.widgetSetSensitivity plotViewComandHBox True
+> GTK.widgetSetSensitivity plotSaveComandHBox True
 > logFileContents <- TO.getObjectValue logFileContentsObject
 > (Just subject) <- TO.getObjectValue subjectMaybeObject
 > (Just recording) <- TO.getObjectValue recordingMaybeObject
@@ -1723,14 +1774,14 @@ I just carry my laptop with me.
 >  datFilePath :: FilePath
 >  datFilePath = FP.combine recordingDir $ (filterName filter) ++ (datFileSuffix filter)
 >  plotFilePath = FP.combine recordingDir $ (filterName filter) ++ (plotFileSuffix filter)
->  viewPlotCommandFull = (viewPlotCommand filter) datFilePath
->  savePlotCommandFull = (savePlotCommand filter) datFilePath plotFilePath
+>  viewPlotComandFull = (viewPlotComand filter) datFilePath
+>  savePlotComandFull = (savePlotComand filter) datFilePath plotFilePath
 >  datFileContents = (logToDat filter) logFileContents
 > TO.update
 >  datFileContentsObject
 >  (\_-> datFileContents)
-> GTK.entrySetText plotViewEntry viewPlotCommandFull
-> GTK.entrySetText plotSaveEntry savePlotCommandFull
+> GTK.entrySetText plotViewEntry viewPlotComandFull
+> GTK.entrySetText plotSaveEntry savePlotComandFull
 > writeFile datFilePath datFileContents
 
 >data UpdateSubjects = Don'tUpdateSubjects
@@ -1743,7 +1794,7 @@ I just carry my laptop with me.
 > recordingMaybeObject
 > recordingViewPaned1
 > recordingViewPaned2
->  !
+>  \
 > subjects
 > subject
 
@@ -1816,7 +1867,7 @@ spraying all the mutable state.
 >type SubjectInfo = [(String,JS.JSValue)]
 
 >subjectName :: SubjectInfo -> String
->subjectName ! subjectInfo = fromJSString name
+>subjectName \ subjectInfo = fromJSString name
 > where
 >  (Just (_,JSString name)) =
 >   find
@@ -1866,7 +1917,7 @@ spraying all the mutable state.
 > recordingsObject
 > subjectInfoObject
 > subjectInfoFields
->  !
+>  \
 > subjectMaybe
 > signal
 >  = do
@@ -1882,12 +1933,14 @@ spraying all the mutable state.
 >  (\_->
 >   case subjectMaybe of
 >    Just subject -> subjectInfo subject
->    Nothing -> map (\(k,_,v)->(k,v)) subjectInfoFields)
+>    Nothing -> subjectInfoFields)
 
 >initialSubjects
 > initialSubjectInfos
+> fillOutFields
 > subjectsDirectory
 > subjectInfoAnonymized
+> subjectInfoFields
 > subjectName
 > trueDirectoryContents
 > exitMethod
@@ -1895,7 +1948,10 @@ spraying all the mutable state.
 > recordingss <- mapM loadRecordings initialSubjectInfos
 > return $ zipWith
 >  (\thisSubjectInfo recordings ->
->     Subject{subjectInfo=thisSubjectInfo
+>     Subject{subjectInfo=
+>              fillOutFields
+>               thisSubjectInfo
+>               subjectInfoFields
 >            ,subjectRecordings=recordings})
 >  initialSubjectInfos
 >  recordingss
@@ -1945,6 +2001,11 @@ then GTK will freeze indefinitely.
 
 There seems to be no way to make this code work :(
 
+Edit note:
+eventually fixed :)
+Ahh, and the frownie and the smilie parens are once again closed
+balance has been return to the life.
+
 >drawSubjects
 > mainWindowInitializedTVar
 > onSubjectSelected
@@ -1955,7 +2016,7 @@ There seems to be no way to make this code work :(
 > anonStudyFilePath
 > subjectInfosAnonymize
 > mainWindow
->  !
+>  \
 > subjects
 > signal
 >  = do
@@ -1987,9 +2048,7 @@ There seems to be no way to make this code work :(
 > objectInit
 >  to
 >  (TO.SyncWithoutSignal
->    (TO.SeedInitially $
->      map
->       (\(k,_,v)->(k,v))
+>    (TO.SeedInitially
 >       subjectInfoFields))
 >  drawSubjectInfo
 >  (handleExceptionStdErr "subjectInfoObject")
@@ -2019,6 +2078,8 @@ After the study is done,
 I will go back and fix these issues,
 somehow.
 
+Fixing them now :)
+
 >subjectInfoFormMVar << newEmptyMVar
 
 >drawSubjectInfo
@@ -2027,7 +2088,7 @@ somehow.
 > subjectInfoFields
 > subjectInfoVBox
 > errorObject
->  !
+>  \
 > thisSubjectInfo
 > signal
 >  = postGUISync $ do
@@ -2037,10 +2098,7 @@ somehow.
 >   GTK.widgetDestroy subjectInfoForm
 >  Nothing -> return ()
 > newForm<-jsInputNew
->  (drop 2 $ zipWith
->  (\(k,v) (_,l,_)->(k,l,v))
->   thisSubjectInfo
->   subjectInfoFields)
+>  (drop 2 thisSubjectInfo)
 >  (syncSubjectInfo thisSubjectInfo)
 > GTK.boxPackStart subjectInfoVBox newForm GTK.PackNatural 0
 > GTK.widgetShowAll subjectInfoVBox
@@ -2049,7 +2107,7 @@ somehow.
 >syncSubjectInfo
 > subjectsObject
 > errorObject
->  !
+>  \
 > thisSubject'sOldInfo
 > newSubjectInfoR
 >  = do
@@ -2077,7 +2135,7 @@ don't copy this,
 whatever you do. ;)
 
 Storing the name and id
-in the same object as the fields was just BAD.
+in the same dict as the fields was just BAD.
 
 >       case (lookup "name" subjectInfoNew) == (lookup "name" subjectInfoOld) of
 >        True  -> subjectInfoNew
@@ -2112,7 +2170,7 @@ Nice: http://new.weavesilk.com/
 > subjectsObject
 > subjectMaybeObject
 > subjectName
->  !
+>  \
 > recordings
 > signal
 >  = GTK.postGUISync $ do
@@ -2141,6 +2199,7 @@ I decided I had enough with this hunger,
 I decided it must come so often,
 because I was eating foods that were too "simple".
 I decided that my only snack food would be oatmeal
+it takes longer to digest.
 after a few days,
 all I could do was stare
 and as the oatmeal grew cold,
@@ -2160,10 +2219,18 @@ is to keep on shoving it down your throat whenever you're the slightest bit hung
 just like fucking syphilus,
 or Sisyphus or however the stone up the hill guy is called.
 
+>postError
+> errorObject
+>  =
+> (\oldValue err->
+>   do
+>    TO.update errorObject (\_->show (err::SomeException))
+>    return oldValue)
+
 >exitMethod
 > gtkThread
 > exitMVar
->  !
+>  \
 > signal
 > messageMaybe
 >  = do
@@ -2184,9 +2251,9 @@ or Sisyphus or however the stone up the hill guy is called.
 > MV.putMVar exitMVar (Exit.ExitFailure 1)
 > CM.forever $ CC.threadDelay 100000
 
->exitMVar <?< newEmptyMVar
+>exitMVar << newEmptyMVar
 
->exit exitMVar mainWindowInitializedTVar =?= do
+>exit exitMVar mainWindowInitializedTVar = do
 > STM.atomically
 >  $ writeTVar
 >     mainWindowInitializedTVar

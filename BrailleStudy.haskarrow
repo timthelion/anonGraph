@@ -1,0 +1,148 @@
+>import qualified AnonGraph as AG
+>import Text.JSON as JS
+>import Control.Concurrent.MVar as MV
+>import Control.Concurrent as CC
+>import Data.List
+>import Data.Maybe
+>import Data.Ratio
+>import Numeric
+
+>anonGraphGUI
+> recordComand
+> subjectInfoFeilds
+> recordingMetaDataFields
+> subjectInfoAnonymize
+> filters
+>  <<
+> AG.initValues
+>  AG.RequiredParameters{}
+>  AG.OptionalParameters
+>   {AG.subjectInfoAnonymizeParameter    = Just subjectInfoAnonymize
+>   ,AG.recordComandParameter            = Just recordComand
+>   ,AG.subjectInfoFieldsParameter       = Just subjectInfoFeilds
+>   ,AG.recordingMetaDataFieldsParameter = Just recordingMetaDataFields
+>   ,AG.filtersParameter                 = Just filters}
+
+>recordComand \ logFilePath =
+> "urxvt -e record-brltty \""++logFilePath++"\""
+
+Rather than using g sensors in tablets to rotate the screen,
+they should just use facial recognition and the web cam
+to tell which way up your eyes are...
+
+>filters
+> logToLocationDat
+>  =
+> [AG.Filter
+>   {AG.filterName="Location"
+>   ,AG.logToDat=logToLocationDat
+>   ,AG.datFileSuffix = ".dat"
+>   ,AG.plotFileSuffix = ".png"
+
+There are times,
+when one finds they have little hope for open source.
+How did we end up with gnuplot sucking so much?!
+Autoscaling doesn't work,
+not ability to interact with the plots.
+It's just depressing :(
+Non-user-friendly awful software :(
+
+Even when it's reading a dat file,
+a small, managable finite set,
+it still cannot make reasonable choices on it's own :(
+
+Ahh, timeplot.
+Balance restored to the universe!
+Not perfect,
+but perfectly open source.
+
+>   ,AG.viewPlotComand=
+>     (\filePathOfDatFile->
+>       "mirage \""++filePathOfDatFile++"\"")
+>   ,AG.savePlotComand=
+>     (\filePathOfDatFile plotFile->
+>        "tplot -if \""++filePathOfDatFile++
+>        "\" -o \""++plotFile ++
+>        "\" -dk lines -or 2000x100")}]
+
+We want this:
+
+2012-11-21@23:49:46.175 #EVENT_LOG# 20121121 1353538186.176 0 0 0 0 0 0 0 0 0 0 0 0 11 ' '
+
+To look like
+
+2012-11-21 23:49:46.175 =loc 11
+
+>logToLocationDat \ log =
+> unlines $ map
+>  cleanLineToLoc
+> $ filter
+>  (isInfixOf "#EVENT_LOG#")
+>  $ lines log
+> where
+>  cleanLineToLoc line =
+>   let ws = words line in
+>   unwords $ (convertDate (ws !! 0)) : "=loc" : (ws !! 16) : []
+>  convertDate date =
+>   map
+>    (\char ->
+>     case char of
+>      '@' -> ' '
+>      c -> c)
+>    date
+
+>subjectInfoFeilds =
+> [("name",JS.showJSON "")
+> ,("id",JS.showJSON (0::Int))
+> ,("Age"
+>  ,JSRational False (0%1))
+> ,("How long has subject been reading braille?"
+>  ,JSRational False (0%1))
+> ,("Intro text reading time MIN"
+>  ,JSRational False (0%1))
+> ,("Intro text reading time SEC"
+>  ,JSRational False (0%1))
+> ,("Handedness"
+>  ,JSString $ toJSString "")
+> ,("Highest level of education"
+>  ,JSString $ toJSString "")
+> ,("FCHAD Cell placement"
+>  ,JSString $ toJSString "")]
+
+>recordingMetaDataFields =
+> [("Notes", JS.showJSON "")]
+
+>subjectInfoAnonymize \ info =
+> map
+>  anonymizeEntry
+>  info
+> where
+>  (JS.JSRational _ id') =
+>   snd $ fromMaybe
+>    (error "invalid info dict")
+>    $ find
+>       (\(key,_)->
+>        key == "id")
+>       info
+>  id :: Double
+>  id = fromRat id'
+>  anonymizeEntry ("name",_) =
+>   ("name",JS.showJSON $ "Subject" ++ (show id))
+>  anonymizeEntry ("Age", JS.JSRational _ age') =
+>   ("Age", JS.showJSON $
+>    fromMaybe
+>     (error "IMPOSSIBLE!")
+>     $ find
+>      (\a-> a > age)
+>      [0,5..])
+>   where
+>    age :: Double
+>    age = fromRat age'
+>  anonymizeEntry x = x
+
+>recordingMetaDataFeilds :: [(String,JSValue)]
+>recordingMetaDataFeilds =
+> [("Notes",JS.showJSON "")]
+
+>exit anonGraphGUI = do
+> AG.exitValue anonGraphGUI

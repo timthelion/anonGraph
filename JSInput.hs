@@ -11,9 +11,9 @@ main = do
    window <- GTK.windowNew
    let
     feilds =
-     [("string","String",JSString $ toJSString "")
-     ,("bool","Bool",JSBool False)
-     ,("rational","Rational",JSRational False (0%1))]
+     [("String",JSString $ toJSString "")
+     ,("Bool",JSBool False)
+     ,("Rational",JSRational False (0%1))]
    jsInput <- jsInputNew feilds
     (\newValuesR->
      case newValuesR of
@@ -23,10 +23,10 @@ main = do
    GTK.onDestroy window GTK.mainQuit
    GTK.widgetShowAll window
    GTK.mainGUI
-   return () -}
+   return ()-}
 
 jsInputNew ::
- [(String,String,JSValue)] ->
+ [(String,JSValue)] ->
  (Result [(String,JSValue)] -> IO())->
  IO Widget
 jsInputNew
@@ -35,17 +35,13 @@ jsInputNew
   = do
  vb <- GTK.vBoxNew False 0
  let
-  (JSObject initialObject) =
-   makeObj
-    $ map
-       (\(k,_,v)->(k,v))
-       feilds
- valuesIORef <- newIORef $ map (\(k,_,v)->(k,v)) feilds
+  (JSObject initialObject) = makeObj feilds
+ valuesIORef <- newIORef feilds
  let
-  addFeild (key,label,value) = do
+  addFeild (key,value) = do
    element <- case value of
     JSBool checked -> do
-     b <- GTK.checkButtonNewWithLabel label
+     b <- GTK.checkButtonNewWithLabel key
      set b [toggleButtonActive := checked
            ,toggleButtonMode   := True]
      b `on` GTK.toggled $ do
@@ -61,10 +57,11 @@ jsInputNew
          values
       writeIORef valuesIORef newValues
       onUpdate $ Ok newValues
+     GTK.boxPackStart vb b GTK.PackNatural 0
      return $ castToWidget b
     r@JSRational{} -> do
      hb <- hBoxNew False 0
-     l <- labelNew $ Just label
+     l <- labelNew $ Just key
      GTK.boxPackStart hb l GTK.PackNatural 0
      e <- GTK.entryNew
      entrySetText e $ encode r
@@ -94,15 +91,18 @@ jsInputNew
       onUpdate $ newValuesR
       return False
      GTK.boxPackStart hb e GTK.PackNatural 0
+     GTK.boxPackStart vb hb GTK.PackNatural 0
      return $ castToWidget hb
     JSString jsstring -> do
-     hb <- hBoxNew False 0
-     l <- labelNew $ Just label
+     hb <- vBoxNew False 0
+     l <- labelNew $ Just key
      GTK.boxPackStart hb l GTK.PackNatural 0
-     e <- GTK.entryNew
-     e `on` GTK.focusOutEvent $ liftIO $ do
+     tb <- GTK.textBufferNew Nothing
+     GTK.textBufferSetText tb $ fromJSString jsstring
+     tv <- GTK.textViewNewWithBuffer tb
+     tv `on` GTK.focusOutEvent $ liftIO $ do
       values <- readIORef valuesIORef
-      text <- get e entryText
+      text <- get tb textBufferText
       let
        newValuesR =
           Ok $ map
@@ -116,10 +116,10 @@ jsInputNew
        _ -> return ()
       onUpdate $ newValuesR
       return False
-     entrySetText e $ fromJSString jsstring
-     GTK.boxPackStart hb e GTK.PackNatural 0
+     GTK.boxPackStart hb tv GTK.PackGrow 0
+     GTK.boxPackStart vb hb GTK.PackGrow 0
      return $ castToWidget hb
     _ -> return $ error "Unsupported value type.  We only support Bool Rational and String, sorry!"
-   GTK.boxPackStart vb element GTK.PackNatural 0
- mapM_ addFeild feilds
+   return ()
+ mapM addFeild feilds
  return $ castToWidget vb
